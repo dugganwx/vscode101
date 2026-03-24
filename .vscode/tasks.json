@@ -1,0 +1,42 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Paper Watcher",
+      "type": "shell",
+      "command": "python watch-papers.py",
+      "options": {
+        "cwd": "${workspaceFolder}/WebProject1"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "echo": false
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Refresh Manifest (one-shot)",
+      "type": "shell",
+      "command": "python watch-papers.py --once",
+      "options": {
+        "cwd": "${workspaceFolder}/WebProject1"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    }
+  ]
+}

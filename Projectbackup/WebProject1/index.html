@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Architecture Papers Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Spectral:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a" aria-hidden="true"></div>
+    <div class="bg-orb orb-b" aria-hidden="true"></div>
+
+    <header class="hero">
+      <p class="eyebrow">SYSTEMS ARCHITECTURE AND INNOVATION</p>
+      <h1>The Technical Paper Desk for AI Datacenter Architecture</h1>
+      <p class="hero-copy group-note">Group: Systems Architecture and Innovation</p>
+      <p class="hero-copy">
+        A static first-cut prototype for curating the most important, most read, and latest AI architecture papers with actionable datacenter context.
+      </p>
+
+      <div class="filter-strip" role="toolbar" aria-label="Paper category filter">
+        <button class="filter-btn is-active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="important">Most Important</button>
+        <button class="filter-btn" data-filter="read">Most Read</button>
+        <button class="filter-btn" data-filter="latest">Latest</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="feed-panel" aria-label="Scrollable paper news feed">
+        <div class="discovery-panel" aria-label="Web discovery results">
+          <div class="feed-title-row">
+            <h2>Web Discovery</h2>
+            <span id="discoveryCount" class="feed-count">Seeded Results</span>
+          </div>
+          <p id="discoveryQuery" class="discovery-copy"></p>
+          <div class="discovery-actions">
+            <button id="findNewPapersBtn" class="filter-btn discovery-btn" type="button">Find New Papers</button>
+            <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready</span>
+          </div>
+          <div id="discoveryFeed" class="discovery-feed" aria-label="Web search result cards"></div>
+        </div>
+
+        <div class="paper-feed-wrap">
+          <div class="feed-title-row">
+            <h2>Paper Feed</h2>
+            <span id="feedCount" class="feed-count"></span>
+          </div>
+          <div id="paperFeed" class="paper-feed" role="listbox" aria-label="Paper cards"></div>
+        </div>
+      </aside>
+
+      <section class="detail-panel" aria-live="polite">
+        <div id="selectedDetail"></div>
+      </section>
+    </main>
+
+    <section class="full-sections-wrap">
+      <h2>Full Paper Summaries</h2>
+      <p class="section-copy">Each section includes a concise summary plus why the paper matters to datacenter design and operations.</p>
+      <div id="fullSections" class="full-sections"></div>
+    </section>
+
+    <footer class="footer-note">
+      <p>Static MVP prototype. Next step: wire data to a dynamic source and analytics-backed ranking.</p>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
