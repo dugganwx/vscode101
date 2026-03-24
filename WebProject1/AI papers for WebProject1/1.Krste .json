@@ -1,0 +1,10 @@
+{
+  "title": "Agile Hardware Design — Krste Asanović",
+  "authors": "Krste Asanović",
+  "year": 2021,
+  "preview": "Foundational lecture on agile hardware design methodology applied to open-source RISC-V processors and accelerators.",
+  "summary": "Covers the principles of agile hardware design using RISC-V as a case study, including rapid iteration, open-source toolchains, and generator-based chip design. Discusses how academic and industry teams can produce competitive silicon faster by treating hardware like software projects.",
+  "datacenter": "Relevant to custom accelerator development philosophy. Agile methods reduce time-to-silicon for AI accelerator prototypes and influence how datacenter operators evaluate ASIC vs GPU TCO.",
+  "metrics": "Key result signal: demonstrates tape-out cycles measured in months rather than years through generator-based methodology.",
+  "link": ""
+}

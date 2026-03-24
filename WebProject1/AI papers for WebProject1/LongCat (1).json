@@ -1,0 +1,10 @@
+{
+  "title": "LongCat: Efficient Long-Context Attention for Language Models",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Introduces LongCat attention approximation enabling 1M+ token context windows with near-linear compute and memory scaling.",
+  "summary": "LongCat proposes a hierarchical chunked attention mechanism that decomposes long sequences into local and global attention components, reducing attention memory from O(n²) to near-O(n). Achieves quality comparable to full attention on long-document benchmarks while enabling practical inference at million-token context lengths.",
+  "datacenter": "High relevance to long-context serving infrastructure. LongCat-style approaches determine whether next-generation long-context LLMs can run on today's GPU memory configurations or require new hardware with higher DRAM capacity per device.",
+  "metrics": "Key result signal: memory scaling factor and quality retention at 256K–1M token contexts versus full attention.",
+  "link": ""
+}

@@ -1,0 +1,10 @@
+{
+  "title": "Dataflow and Near-Memory Compute Architectures for AI Acceleration",
+  "authors": "Multiple Authors",
+  "year": 2023,
+  "preview": "Surveys dataflow and near-memory computing approaches that reduce data movement energy in AI accelerators compared to von Neumann architectures.",
+  "summary": "Analyses how dataflow architectures (spatial, temporal, systolic array) and near-memory processing (PIM, HBM-integrated compute) address the memory wall for neural network workloads. Compares designs across throughput, energy efficiency, and programmability dimensions with case studies from academic and industrial chips.",
+  "datacenter": "Directly relevant to AI ASIC evaluation and future GPU roadmap assessment. Near-memory compute is a major differentiator between competing AI accelerator architectures and informs decisions about custom silicon investment.",
+  "metrics": "Key result signal: TOPS/W and memory bandwidth efficiency of dataflow architectures versus GPU baselines.",
+  "link": ""
+}

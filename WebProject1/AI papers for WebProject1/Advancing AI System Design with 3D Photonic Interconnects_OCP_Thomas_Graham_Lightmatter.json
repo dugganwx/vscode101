@@ -1,0 +1,10 @@
+{
+  "title": "Advancing AI System Design with 3D Photonic Interconnects (OCP / Lightmatter)",
+  "authors": "Thomas Graham, Lightmatter / OCP",
+  "year": 2024,
+  "preview": "OCP presentation showing how 3D co-packaged photonics can replace electrical interconnects to eliminate bandwidth walls in large AI training clusters.",
+  "summary": "Describes Lightmatter's Passage photonic interconnect technology and its integration into AI system design. Demonstrates how co-packaged optics achieve 100×+ bandwidth density improvement over copper SerDes, enabling all-to-all communication patterns required by MoE and large-scale tensor-parallel training.",
+  "datacenter": "High strategic relevance. Photonic interconnects directly address the collective communication bottleneck that limits scaling efficiency beyond 1K GPUs. Passage-style products could replace InfiniBand/Ethernet fabrics as the scale-out interconnect of choice.",
+  "metrics": "Key result signal: bandwidth density (Tb/s/mm²) and energy per bit versus copper SerDes at equivalent reach.",
+  "link": ""
+}

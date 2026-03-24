@@ -1,0 +1,10 @@
+{
+  "title": "Datacenter TCO for LLM Inference with FP8",
+  "authors": "Multiple Authors",
+  "year": 2024,
+  "preview": "Full TCO analysis showing how FP8 inference reduces capital and operating cost per token for large-scale LLM serving.",
+  "summary": "Models the end-to-end total cost of ownership for LLM inference clusters comparing FP16, BF16, INT8, and FP8 serving configurations. Incorporates GPU acquisition cost, power, cooling, memory capacity constraints, and serving throughput. Shows FP8 achieves significant cost reduction per million output tokens with negligible quality loss.",
+  "datacenter": "Core reference for infrastructure CAPEX/OPEX planning. FP8 directly affects GPU generation selection, memory configuration, and cluster sizing decisions. The TCO model is reusable for benchmarking competing hardware platforms.",
+  "metrics": "Key result signal: cost per million output tokens reduction using FP8 versus FP16 serving on H100 clusters.",
+  "link": ""
+}

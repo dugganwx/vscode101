@@ -1,0 +1,10 @@
+{
+  "title": "Pretraining Large Language Models with NVFP4",
+  "authors": "NVIDIA",
+  "year": 2025,
+  "preview": "NVIDIA paper demonstrating end-to-end LLM pre-training in FP4 precision using Blackwell Tensor Cores, achieving training stability and quality at half the compute cost of FP8.",
+  "summary": "Presents the first end-to-end pre-training of large language models using NVIDIA's NVFP4 format on Blackwell GPUs. Introduces loss-scaling and gradient clipping techniques adapted for 4-bit precision and demonstrates training stability across billions of tokens. Achieves downstream task quality matching BF16 baselines.",
+  "datacenter": "Breakthrough relevance for future cluster design. FP4 pre-training would double the effective FLOPS of a Blackwell cluster relative to FP8, halving training time or cost for a given model scale. Changes TCO calculus for future AI training infrastructure investment.",
+  "metrics": "Key result signal: LLM training convergence in NVFP4 matching BF16 baseline quality across standard benchmarks.",
+  "link": ""
+}

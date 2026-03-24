@@ -1,0 +1,10 @@
+{
+  "title": "Accumulator-Aware Post-Training Quantization for Large Language Models",
+  "authors": "Multiple Authors",
+  "year": 2024,
+  "preview": "Addresses numerical overflow in low-precision accumulators during LLM GEMM operations, enabling safe INT4 quantization without accuracy loss.",
+  "summary": "Identifies that standard PTQ methods ignore accumulator bit-width constraints in hardware Tensor Cores, leading to silent overflow errors at INT4 and below. Proposes accumulator-aware weight clipping and scaling strategies that maintain numerical correctness while achieving high compression ratios.",
+  "datacenter": "Directly relevant to INT4/FP4 inference deployment on H100 and MI300X hardware. Accumulator overflow is a real production risk for quantized model serving at scale — this provides a principled mitigation.",
+  "metrics": "Key result signal: elimination of accumulator overflow events with less than 0.5% perplexity degradation versus FP16 baseline.",
+  "link": ""
+}

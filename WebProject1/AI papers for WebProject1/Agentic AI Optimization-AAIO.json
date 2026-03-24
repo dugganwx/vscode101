@@ -1,0 +1,10 @@
+{
+  "title": "Agentic AI Optimization (AAIO)",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Proposes an optimization framework for multi-agent AI systems, addressing scheduling, resource allocation, and latency in compound AI pipelines.",
+  "summary": "AAIO introduces a profiling and optimization methodology for agentic AI workloads where tool calls, retrieval, and LLM inference steps compose into dynamic execution graphs. Covers batching strategies, speculative prefetching, and router-level optimisation for heterogeneous agent pipelines.",
+  "datacenter": "Relevant to next-generation AI serving infrastructure. Agentic pipelines have bursty, input-dependent compute patterns that challenge static batch schedulers — AAIO provides a framework for dynamic resource allocation in these systems.",
+  "metrics": "Key result signal: end-to-end latency and throughput improvements for multi-step agent pipelines against baseline serving.",
+  "link": ""
+}

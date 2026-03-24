@@ -1,0 +1,10 @@
+{
+  "title": "A Survey of Low-bit Large Language Models: Basics, Systems, and Algorithms",
+  "authors": "Multiple Authors",
+  "year": 2024,
+  "preview": "Comprehensive survey covering quantization fundamentals, system-level implications, and state-of-the-art algorithms for deploying LLMs at INT8, INT4, and lower precision.",
+  "summary": "Systematically reviews post-training quantization (PTQ), quantization-aware training (QAT), and mixed-precision methods for LLMs. Covers weight-only, weight-activation, and KV-cache quantization. Evaluates GPTQ, AWQ, SmoothQuant, QuIP#, and related methods with accuracy–compression tradeoffs.",
+  "datacenter": "Core reference for inference cluster design. Low-bit quantization directly determines batch size, memory capacity requirements, and serving throughput per GPU. Selecting the right method impacts TCO by 2–4× for large-scale inference fleets.",
+  "metrics": "Key result signal: perplexity degradation and throughput improvement across quantization schemes at INT4 and below.",
+  "link": ""
+}

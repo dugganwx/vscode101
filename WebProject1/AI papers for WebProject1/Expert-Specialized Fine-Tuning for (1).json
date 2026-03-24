@@ -1,0 +1,10 @@
+{
+  "title": "Expert-Specialized Fine-Tuning for Mixture-of-Experts Models",
+  "authors": "Multiple Authors",
+  "year": 2024,
+  "preview": "Proposes fine-tuning strategies that specialise individual experts in MoE models to improve task-specific performance without full retraining.",
+  "summary": "Shows that selectively fine-tuning individual expert subnetworks in a pre-trained MoE model achieves better task specialisation than global LoRA or full fine-tuning at equivalent parameter budget. Introduces routing regularisation to maintain expert load balance during specialised training.",
+  "datacenter": "Relevant to inference fleet operators maintaining multiple fine-tuned model variants. Expert-specialised fine-tuning could enable a single shared-weight base model with swappable expert adapters, reducing storage costs and enabling faster model updates.",
+  "metrics": "Key result signal: task-specific accuracy improvement versus standard LoRA fine-tuning at equivalent compute budget.",
+  "link": ""
+}

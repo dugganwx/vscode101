@@ -1,0 +1,10 @@
+{
+  "title": "Kimi K2: Open Agentic Intelligence",
+  "authors": "Moonshot AI",
+  "year": 2025,
+  "preview": "Technical report on Kimi K2, an open-weights MoE model optimised for multi-step agentic tasks including tool use, coding, and reasoning.",
+  "summary": "Describes the Kimi K2 architecture, a large MoE model trained with reinforcement learning from tool-use feedback to improve multi-step agentic capability. Covers training data composition, RLHF-style fine-tuning for tool calling, and evaluation on agentic benchmarks including SWE-bench and WebArena.",
+  "datacenter": "Relevant to infrastructure teams evaluating open agentic models. MoE architecture with agent-specialised training has distinct memory and routing characteristics compared to dense chat models, affecting batch size and serving configuration.",
+  "metrics": "Key result signal: state-of-the-art performance on agentic benchmarks at comparable or lower active parameter count versus dense alternatives.",
+  "link": ""
+}

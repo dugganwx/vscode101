@@ -1,0 +1,10 @@
+{
+  "title": "CUDA Binary Utilities",
+  "authors": "NVIDIA",
+  "year": 2024,
+  "preview": "NVIDIA reference guide for cuobjdump, nvdisasm, and related tools for inspecting and analysing compiled CUDA binaries.",
+  "summary": "Documents NVIDIA's binary inspection utilities for CUDA kernels, including PTX and SASS disassembly, binary attribute extraction, and performance counter annotation. Essential for kernel developers validating instruction scheduling, register allocation, and memory access patterns.",
+  "datacenter": "Directly useful for GPU cluster software teams doing kernel-level optimisation. Understanding SASS output is required for diagnosing stall cycles, register spills, and instruction throughput bottlenecks in production inference and training kernels.",
+  "metrics": "Key result signal: reference documentation enabling hardware-accurate CUDA kernel analysis.",
+  "link": "https://docs.nvidia.com/cuda/cuda-binary-utilities/"
+}

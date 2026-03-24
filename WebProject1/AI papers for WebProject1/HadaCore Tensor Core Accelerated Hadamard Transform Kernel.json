@@ -1,0 +1,10 @@
+{
+  "title": "HadaCore: Tensor Core Accelerated Hadamard Transform Kernel",
+  "authors": "HadaCore Authors",
+  "year": 2024,
+  "preview": "Fused GPU kernel that accelerates the Walsh-Hadamard Transform using Tensor Cores, directly enabling faster LLM quantization pipelines.",
+  "summary": "HadaCore implements the Walsh-Hadamard Transform (WHT) fused onto NVIDIA Tensor Core units, achieving throughput far above naive WHT implementations. The Hadamard transform is a critical building block in randomized-rotation quantization schemes such as QuIP# and QuaRot. By mapping WHT onto the same hardware path as GEMM, HadaCore removes the WHT step as a throughput bottleneck in quantization-aware inference pipelines.",
+  "datacenter": "Eliminates a non-GEMM bottleneck in FP4/INT4 quantization pipelines targeting H100 and future Tensor Core generations. Reduces end-to-end quantization overhead and enables tighter integration of Hadamard-based rotation with weight-loading and dequantization passes.",
+  "metrics": "Key result signal: Tensor Core-fused WHT achieves significantly higher throughput than cuBLAS-based baselines, reducing the rotation step cost in quantization-aware LLM inference.",
+  "link": ""
+}

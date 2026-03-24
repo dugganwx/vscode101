@@ -1,0 +1,10 @@
+{
+  "title": "OCP Microscaling Formats (MX) v1.0 Specification",
+  "authors": "Open Compute Project (OCP)",
+  "year": 2023,
+  "preview": "Industry standard specification defining MX4, MX6, and MX9 microscaling number formats adopted by AMD, Intel, Microsoft, NVIDIA, and Qualcomm for AI hardware.",
+  "summary": "Defines the Microscaling (MX) format family, which uses a shared block-level scale factor paired with narrow mantissa elements (FP4, FP6, FP8, INT8) to achieve higher numeric range than pure low-bit formats. MX formats are the hardware basis for next-generation low-precision AI compute in H100 follow-ons and AMD MI350+.",
+  "datacenter": "Critical standard for AI hardware procurement and software stack planning. MX formats (especially MXFP4) will be the primary precision type in next-generation training and inference silicon, determining which models can be efficiently deployed on post-Blackwell hardware.",
+  "metrics": "Key result signal: quantization accuracy parity with FP16 using MXFP4 on standard LLM benchmarks validated by consortium members.",
+  "link": "https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf"
+}

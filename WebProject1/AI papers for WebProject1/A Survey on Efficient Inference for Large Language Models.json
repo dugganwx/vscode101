@@ -1,0 +1,10 @@
+{
+  "title": "A Survey on Efficient Inference for Large Language Models",
+  "authors": "Multiple Authors",
+  "year": 2024,
+  "preview": "Wide-ranging survey of techniques for reducing LLM inference cost including quantization, pruning, speculative decoding, batching, and hardware-aware serving.",
+  "summary": "Covers the full stack of LLM inference optimisation: model compression (quantization, pruning, distillation), architectural efficiency (GQA, MoE, sliding-window attention), and system-level techniques (continuous batching, KV cache paging, speculative decoding). Provides benchmarks across TTFT and throughput metrics.",
+  "datacenter": "Essential reading for AI infrastructure teams. Covers every lever available to improve tokens/s/GPU and reduce serving cost, directly mapping to cluster sizing, GPU generation selection, and software stack decisions.",
+  "metrics": "Key result signal: end-to-end throughput and latency improvements versus baseline dense inference across serving stack optimisations.",
+  "link": ""
+}

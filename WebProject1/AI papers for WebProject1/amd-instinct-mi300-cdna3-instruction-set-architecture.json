@@ -1,0 +1,10 @@
+{
+  "title": "AMD Instinct MI300 CDNA3 Instruction Set Architecture",
+  "authors": "AMD",
+  "year": 2024,
+  "preview": "Official AMD ISA reference for the MI300 series (CDNA3), documenting Matrix Core instructions, memory model, and vector compute operations.",
+  "summary": "Complete instruction set reference for AMD CDNA3 architecture including MFMA (Matrix Fused Multiply-Add) instructions at all supported precisions, scalar/vector/memory instruction encodings, LDS operations, and the unified CPU+GPU memory model unique to MI300A. Essential for low-level kernel development and compiler backend work.",
+  "datacenter": "Core reference for AI software teams targeting MI300 clusters. Understanding the ISA is prerequisite for writing and validating high-performance ROCm kernels, validating compiler output, and diagnosing hardware-level performance issues in production training and inference workloads.",
+  "metrics": "Key result signal: reference specification enabling cycle-accurate understanding of MFMA throughput and latency across precisions.",
+  "link": "https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/amd-instinct-mi300-cdna3-instruction-set-architecture.pdf"
+}

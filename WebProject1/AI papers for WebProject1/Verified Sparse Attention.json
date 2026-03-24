@@ -1,0 +1,10 @@
+{
+  "title": "Verified Sparse Attention",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Introduces formally verified sparse attention patterns that guarantee correctness properties while reducing attention compute for long-context LLMs.",
+  "summary": "Proposes sparse attention masks derived from formal verification of model behaviour, ensuring that excluded token pairs do not affect output quality above a bounded error threshold. Provides correctness guarantees absent in heuristic sparsity methods like H2O or streaming attention, enabling deployment of sparse attention in safety-critical applications.",
+  "datacenter": "Relevant to long-context inference infrastructure: verified sparsity enables reproducible and auditable memory reduction, important for regulated enterprise AI deployments. Provides the correctness foundation needed before sparse attention can replace full attention in production.",
+  "metrics": "Key result signal: formally bounded output divergence from full attention alongside memory and compute reduction factor.",
+  "link": ""
+}

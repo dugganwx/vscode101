@@ -1,0 +1,10 @@
+{
+  "title": "Energy Use of AI Inference: Efficiency Pathways and Test-Time Compute",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Quantifies energy consumption of LLM inference at scale and evaluates pathways including quantization, distillation, and efficient architectures to reduce datacenter power demand.",
+  "summary": "Models total energy consumption of AI inference workloads across model size, hardware generation, and operational intensity scenarios. Estimates global power demand trajectory and evaluates the relative impact of hardware efficiency improvements, model compression, and test-time compute techniques on total energy footprint.",
+  "datacenter": "Critical reference for sustainability and power planning in AI datacenters. Provides the analytical framework for evaluating how hardware and software choices translate to WH/token and total facility power budget.",
+  "metrics": "Key result signal: energy per output token across hardware generations and compression levels with projected 2025–2030 total demand.",
+  "link": ""
+}

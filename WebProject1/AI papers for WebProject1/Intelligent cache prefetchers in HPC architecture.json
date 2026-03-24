@@ -1,0 +1,10 @@
+{
+  "title": "Intelligent Cache Prefetchers in HPC Architecture",
+  "authors": "Multiple Authors",
+  "year": 2023,
+  "preview": "Surveys hardware prefetching techniques for HPC and AI workloads, covering stride, stream, and ML-driven prefetchers.",
+  "summary": "Reviews the design space of cache prefetchers in modern HPC processors and GPUs, including stride detection, stream buffers, and learned prefetchers trained on memory access patterns. Evaluates effectiveness for irregular scientific and AI workloads where classical prefetch heuristics underperform.",
+  "datacenter": "Relevant to AI accelerator memory subsystem design. Memory access latency in LLM inference (weight loading, KV cache reads) is a key bottleneck — intelligent prefetch can reduce stall cycles and improve DRAM bandwidth utilisation efficiency.",
+  "metrics": "Key result signal: DRAM bandwidth utilisation and cache miss rate reduction for HPC workloads with intelligent prefetch enabled.",
+  "link": ""
+}

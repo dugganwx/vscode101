@@ -1,0 +1,10 @@
+{
+  "title": "DeepSeek-V3.2-Exp: Boosting Long-Context Efficiency with DeepSeek Sparse Attention",
+  "authors": "DeepSeek AI",
+  "year": 2025,
+  "preview": "Introduces DeepSeek Sparse Attention (DSA) to extend DeepSeek-V3 to very long contexts with sub-linear KV cache memory scaling.",
+  "summary": "Proposes a sparse attention mechanism that selectively attends to high-importance token positions using learned routing, reducing the KV cache memory footprint for 128K+ context inference. Achieves near-dense accuracy with a fraction of the compute cost for long-document tasks.",
+  "datacenter": "Addresses one of the most pressing serving scalability challenges: long-context KV cache memory growth. DSA-style methods could enable serving models with 128K–1M context lengths on today's GPU fleet configurations.",
+  "metrics": "Key result signal: memory reduction factor and accuracy retention for 128K+ context tasks versus full attention baseline.",
+  "link": ""
+}

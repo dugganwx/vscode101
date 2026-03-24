@@ -1,0 +1,10 @@
+{
+  "title": "Benchmarking GPU Tensor Cores on GEMM Kernels through CUTLASS",
+  "authors": "Multiple Authors",
+  "year": 2023,
+  "preview": "Systematic benchmark of NVIDIA Tensor Core GEMM performance across precisions, tile sizes, and occupancy configurations using CUTLASS.",
+  "summary": "Uses CUTLASS to exhaustively benchmark Tensor Core throughput on H100, A100, and V100 GPUs across FP64, FP32, TF32, FP16, BF16, INT8, and FP8 precisions. Measures achieved TFLOPS versus peak, latency, and memory bandwidth utilisation as functions of matrix size and warp configuration.",
+  "datacenter": "Foundational for AI cluster capacity planning. Achieved GEMM efficiency (versus peak TFLOPS) determines real training throughput per GPU. Results guide batch size and model size choices for optimal hardware utilisation.",
+  "metrics": "Key result signal: achieved TFLOPS as percentage of peak Tensor Core throughput across precision and problem size combinations.",
+  "link": ""
+}

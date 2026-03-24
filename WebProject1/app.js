@@ -371,6 +371,10 @@ const localPaperFolder = "AI papers for WebProject1";
 let localPaperFiles = [];
 let dynamicLocalPapers = [];
 
+// Sidecar metadata from papers-manifest.json: maps PDF filename → metadata object.
+// Populated by pollManifestJson(); used by buildLocalPapers() to override defaults.
+let _manifestMetadata = {};
+
 function slugify(value) {
   return value
     .toLowerCase()
@@ -417,25 +421,23 @@ function inferGroups(fileName, year) {
 
 function buildLocalPapers(fileNames) {
   return fileNames.map((fileName) => {
-    const year = inferYear(fileName);
-    const title = toDisplayTitle(fileName);
-    const groups = inferGroups(fileName, year);
+    const sidecar = _manifestMetadata[fileName] || {};
+    const year    = sidecar.year    || inferYear(fileName);
+    const title   = sidecar.title   || toDisplayTitle(fileName);
+    const groups  = inferGroups(fileName, year);
     const relativePath = `${localPaperFolder}/${fileName}`;
 
     return {
       id: `local-${slugify(fileName)}`,
       title,
-      authors: "Repository Paper",
+      authors:    sidecar.authors    || "Repository Paper",
       year,
       groups,
-      preview: "Local repository entry loaded from your WebProject1 paper folder.",
-      summary:
-        "This entry is pulled from the local paper repository. Add a custom hand-written summary here as you review the paper in detail.",
-      datacenter:
-        "Potentially relevant to accelerator efficiency, cluster architecture, inference economics, or system-level AI deployment tradeoffs.",
-      metrics:
-        "Key result signal not yet extracted. Review and annotate this item for production use.",
-      link: encodeURI(relativePath),
+      preview:    sidecar.preview    || "Local repository entry loaded from your WebProject1 paper folder.",
+      summary:    sidecar.summary    || "This entry is pulled from the local paper repository. Add a custom hand-written summary here as you review the paper in detail.",
+      datacenter: sidecar.datacenter || "Potentially relevant to accelerator efficiency, cluster architecture, inference economics, or system-level AI deployment tradeoffs.",
+      metrics:    sidecar.metrics    || "Key result signal not yet extracted. Review and annotate this item for production use.",
+      link:       sidecar.link       || encodeURI(relativePath),
       isLocal: true
     };
   });
@@ -1519,7 +1521,6 @@ function renderDiscoveryFeed() {
     discoveryFeedEl.appendChild(card);
   }
   scheduleWikiSummaryImages(discoveryFeedEl);
-  bindDropZones(discoveryFeedEl);
   schedulePdfRenders(discoveryFeedEl);
 }
 
@@ -1567,7 +1568,6 @@ function renderFeed() {
 
   feedCountEl.textContent = `${visible.length} papers`;
   scheduleWikiSummaryImages(feedEl);
-  bindDropZones(feedEl);
   schedulePdfRenders(feedEl);
 }
 
@@ -1620,7 +1620,6 @@ function renderDetail() {
     <p class="detail-meta">Keyboard tip: focus a card and press <kbd>Enter</kbd> or <kbd>Space</kbd> to select.</p>
   `;
   scheduleWikiSummaryImages(detailEl);
-  bindDropZones(detailEl);
   schedulePdfRenders(detailEl);
 }
 
@@ -1697,20 +1696,8 @@ function extractPaperKeywords(paper) {
 const _wikiImgCache   = new Map();
 const _wikiPromiseMap = new Map();
 
-// Phase 1 — Pre-populate from localStorage so manually dropped images are
-// served instantly on page load (before any Wikipedia fetch runs).
-(function _loadWikiOverrides() {
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith("wikiOverride:")) {
-        const article = key.slice("wikiOverride:".length);
-        const dataUrl  = localStorage.getItem(key);
-        if (dataUrl) _wikiImgCache.set(article, dataUrl);
-      }
-    }
-  } catch (_) { /* localStorage unavailable (private browsing, file://) */ }
-})();
+// Local keyword images folder — filenames match Wikipedia article titles exactly.
+const _localImgBase = "Key Word Images/";
 
 function fetchWikiThumb(article) {
   if (_wikiImgCache.has(article))   return Promise.resolve(_wikiImgCache.get(article));
@@ -1732,65 +1719,36 @@ function fetchWikiThumb(article) {
   return p;
 }
 
+// Resolves a local image path for an article if the file exists in "Key Word Images/".
+// Returns a Promise<string|null> — the path if loadable, null otherwise.
+function probeLocalImage(article) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const path = _localImgBase + article + ".png";
+    img.onload  = () => resolve(path);
+    img.onerror = () => resolve(null);
+    img.src = path;
+  });
+}
+
 // Fetches Wikipedia thumbnails and updates all img[data-wiki-article] in container.
-// Falls back silently if network is unavailable — the keyword SVG placeholder remains.
+// Falls back to Key Word Images/<article>.png, then to the SVG keyword placeholder.
 function scheduleWikiSummaryImages(container) {
   container.querySelectorAll("img[data-wiki-article]").forEach((img) => {
     const article = img.dataset.wikiArticle;
     if (!article) return;
     fetchWikiThumb(article).then((url) => {
-      if (url && img.isConnected) img.src = url;
-      // If url is null, the keyword-label SVG placeholder stays — no visible "loading" message.
+      if (url && img.isConnected) { img.src = url; return; }
+      // Wikipedia returned nothing — try local keyword image folder.
+      probeLocalImage(article).then((localPath) => {
+        if (localPath && img.isConnected) img.src = localPath;
+        // If neither found, the kwPlaceholder SVG set at render time stays.
+      });
     });
   });
 }
 
-// Phase 2 — Attach drag-and-drop handlers to every .keyword-figure in container.
-// Dropping an image file updates _wikiImgCache, persists to localStorage, and
-// propagates immediately to every img[data-wiki-article] sharing that article title.
-function bindDropZones(container) {
-  container.querySelectorAll(".keyword-figure").forEach((figure) => {
-    const img     = figure.querySelector("img[data-wiki-article]");
-    if (!img) return;
-    const article = img.dataset.wikiArticle;
-    if (!article) return;
 
-    figure.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-      figure.classList.add("drag-over");
-    });
-
-    figure.addEventListener("dragleave", (e) => {
-      // Only clear when leaving the figure itself, not a child element
-      if (!figure.contains(e.relatedTarget)) figure.classList.remove("drag-over");
-    });
-
-    figure.addEventListener("drop", (e) => {
-      e.preventDefault();
-      figure.classList.remove("drag-over");
-      const file = e.dataTransfer.files[0];
-      if (!file || !file.type.startsWith("image/")) return;
-
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target.result;
-
-        // Persist to localStorage (keyed by article title)
-        try { localStorage.setItem("wikiOverride:" + article, dataUrl); } catch (_) {}
-
-        // Update in-memory cache so future re-renders use the override immediately
-        _wikiImgCache.set(article, dataUrl);
-
-        // Propagate to every keyword image for this article across all papers
-        document
-          .querySelectorAll(`img[data-wiki-article="${CSS.escape(article)}"]`)
-          .forEach((el) => { el.src = dataUrl; });
-      };
-      reader.readAsDataURL(file);
-    });
-  });
-}
 
 // Inline SVG placeholder shown while (or instead of) a Wikipedia image.
 // Designed to look reasonable as a permanent fallback, not just a transient spinner.
@@ -1836,7 +1794,6 @@ function renderFullSections() {
     })
     .join("");
   scheduleWikiSummaryImages(sectionEl);
-  bindDropZones(sectionEl); // Phase 3 — attach drop handlers after every render
 }
 
 function bindSummarySearch() {
@@ -1976,6 +1933,10 @@ async function pollManifestJson() {
     const data = await res.json();
     if (!Array.isArray(data.files) || data.updated === _lastManifestUpdated) return;
     _lastManifestUpdated = data.updated;
+    // Store sidecar metadata so buildLocalPapers() can merge it.
+    if (data.metadata && typeof data.metadata === "object") {
+      _manifestMetadata = data.metadata;
+    }
     // Sync window.localPapersManifest so refreshLocalPapersFromManifest works correctly
     window.localPapersManifest = data.files;
     refreshLocalPapersFromManifest();

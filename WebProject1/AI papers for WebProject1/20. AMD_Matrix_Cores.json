@@ -1,0 +1,10 @@
+{
+  "title": "AMD Matrix Cores",
+  "authors": "AMD",
+  "year": 2022,
+  "preview": "Technical overview of AMD CDNA Matrix Core units enabling high-throughput mixed-precision GEMM for AI workloads.",
+  "summary": "Describes the Matrix Core architecture in AMD CDNA GPUs, covering how the hardware executes MFMA (Matrix Fused Multiply-Add) instructions at different precisions (FP64, FP32, FP16, BF16, INT8). Explains pipeline depth, register file layout, and the relationship between occupancy and throughput.",
+  "datacenter": "Directly relevant to AI training and inference cluster evaluation. Matrix Core throughput in TFLOPS and the precision support matrix determine which ML frameworks and model types run efficiently on MI200/MI300 nodes.",
+  "metrics": "Key result signal: peak FP16 Matrix Core throughput in TFLOPS per CU and scaling to full GPU die.",
+  "link": ""
+}

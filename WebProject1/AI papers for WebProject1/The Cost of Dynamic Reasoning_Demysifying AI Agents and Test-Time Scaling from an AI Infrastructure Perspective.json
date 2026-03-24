@@ -1,0 +1,10 @@
+{
+  "title": "The Cost of Dynamic Reasoning: AI Agents and Test-Time Scaling from an Infrastructure Perspective",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Analyses the infrastructure cost implications of test-time compute scaling and chain-of-thought reasoning in production AI deployments.",
+  "summary": "Quantifies the compute overhead of reasoning models (o1-style) and multi-step agent pipelines relative to standard chat inference. Models the cost of test-time scaling (sampling multiple completions, self-consistency) versus training-time scaling on task quality and per-query cost. Provides guidance for infrastructure teams deciding when reasoning models are cost-effective.",
+  "datacenter": "Directly relevant to cluster configuration for reasoning-heavy workloads. Test-time scaling dramatically increases tokens-per-query, multiplying GPU-hours per request and requiring different batching and memory strategies than standard chat serving.",
+  "metrics": "Key result signal: GPU-hours per query ratio between reasoning and standard inference modes across task difficulty levels.",
+  "link": ""
+}

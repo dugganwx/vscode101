@@ -1,0 +1,10 @@
+{
+  "title": "Efficient and Scalable Agentic AI with Heterogeneous Hardware",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Examines how heterogeneous hardware configurations (GPU+CPU+memory accelerator) improve efficiency for the mixed workload profile of agentic AI pipelines.",
+  "summary": "Analyses the compute profile of agentic AI: rapid tool dispatch (CPU-bound), retrieval (memory-bound), and LLM inference (GPU-bound). Proposes heterogeneous scheduling that assigns each step to the appropriate processor type, reducing E2E latency and GPU idle time compared to GPU-only deployments.",
+  "datacenter": "Relevant to rack-level architecture decisions for agentic AI deployment. Points toward tiered compute designs with fast CPU cores, high-bandwidth memory, and GPU accelerators in the same chassis — impacting server OEM selection and rack topology.",
+  "metrics": "Key result signal: end-to-end latency and GPU utilisation improvement for agentic pipelines on heterogeneous versus homogeneous configurations.",
+  "link": ""
+}

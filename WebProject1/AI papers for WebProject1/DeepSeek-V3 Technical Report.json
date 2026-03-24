@@ -1,0 +1,10 @@
+{
+  "title": "DeepSeek-V3 Technical Report",
+  "authors": "DeepSeek AI",
+  "year": 2024,
+  "preview": "Full technical report on DeepSeek-V3, a large sparse MoE model with Multi-head Latent Attention and cost-efficient FP8 training.",
+  "summary": "Describes DeepSeek-V3 architecture including DeepSeekMoE with shared and routed experts, Multi-head Latent Attention (MLA) for KV cache compression, and an FP8 mixed-precision training pipeline. Covers infrastructure decisions including load balancing, expert routing, and pipeline parallelism at 2048 H800 scale.",
+  "datacenter": "Highly relevant to sparse model infrastructure planning. Documents real training costs, interconnect requirements, and achievable MFU for a frontier MoE model. FP8 training pipeline details are directly applicable to next-generation training cluster design.",
+  "metrics": "Key result signal: 2.788M H800 GPU-hours for full pre-training at a cost of approximately $5.5M USD.",
+  "link": "https://arxiv.org/abs/2412.19437"
+}

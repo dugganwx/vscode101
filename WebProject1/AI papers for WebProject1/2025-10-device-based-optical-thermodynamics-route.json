@@ -1,0 +1,10 @@
+{
+  "title": "Device-Based Optical Thermodynamics Route",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Explores thermodynamic energy bounds for optical computing devices as a pathway to sub-fJ/MAC AI inference.",
+  "summary": "Analyses fundamental thermodynamic limits on energy consumption for optical devices performing matrix multiplication. Shows that photonic computing can in principle approach Landauer limits far below electronic CMOS, with implications for ultra-low-power inference inference at the edge and in modular datacenter racks.",
+  "datacenter": "Long-range relevance to datacenter power density and cooling cost. If optical matrix engines reach production, they could replace GPU GEMM cores for inference, fundamentally changing floorplan and cooling infrastructure requirements.",
+  "metrics": "Key result signal: theoretical energy-per-MAC bounds for optical matrix devices compared to CMOS baselines.",
+  "link": ""
+}

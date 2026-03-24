@@ -1,0 +1,10 @@
+{
+  "title": "Low-bit Model Quantization for Deep Neural Networks: A Survey",
+  "authors": "Multiple Authors",
+  "year": 2023,
+  "preview": "Comprehensive survey of quantization methods for deep neural networks covering uniform, non-uniform, mixed-precision, and hardware-aware approaches.",
+  "summary": "Reviews the full landscape of DNN quantization including post-training quantization (PTQ), quantization-aware training (QAT), binary and ternary networks, and mixed-precision methods. Surveys accuracy–compression tradeoffs with a focus on the interaction between quantization granularity, calibration data, and hardware target.",
+  "datacenter": "Foundation reference for model compression strategy in AI inference deployments. Selecting appropriate quantization method and bit-width is the primary lever for fitting larger models into GPU memory budgets while maintaining acceptable accuracy.",
+  "metrics": "Key result signal: accuracy-compression frontier across quantization methods for CNNs and Transformers.",
+  "link": ""
+}

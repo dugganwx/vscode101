@@ -1,0 +1,10 @@
+{
+  "title": "DeepSpeed-FastGen: High-Throughput Text Generation via MII and DeepSpeed-Inference",
+  "authors": "Microsoft DeepSpeed Team",
+  "year": 2024,
+  "preview": "Presents Dynamic SplitFuse scheduling and DeepSpeed-MII to achieve higher throughput and lower latency than vLLM for LLM serving.",
+  "summary": "Introduces Dynamic SplitFuse, a token-budget-aware scheduling algorithm that splits long prompts and fuses short generations to maintain consistent GPU utilisation. Integrates with DeepSpeed-MII for multi-GPU deployment. Benchmarks show significant throughput improvements over vLLM for mixed prompt/generation workloads.",
+  "datacenter": "Directly relevant to production LLM serving stack decisions. Dynamic SplitFuse addresses GPU bubble time in continuous batching systems, improving cluster utilisation and reducing cost per token for heterogeneous request distributions.",
+  "metrics": "Key result signal: throughput improvement over vLLM for mixed short/long prompt workloads on A100 clusters.",
+  "link": "https://arxiv.org/abs/2401.08671"
+}

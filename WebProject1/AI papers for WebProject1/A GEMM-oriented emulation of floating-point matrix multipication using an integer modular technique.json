@@ -1,0 +1,10 @@
+{
+  "title": "GEMM-Oriented Emulation of FP Matrix Multiplication Using Integer Modular Arithmetic",
+  "authors": "Multiple Authors",
+  "year": 2024,
+  "preview": "Shows how to emulate floating-point matrix multiplication accurately using integer arithmetic units via modular techniques, enabling FP-quality results on integer-only hardware.",
+  "summary": "Proposes an algorithm that decomposes floating-point GEMM into a sequence of integer operations using Chinese Remainder Theorem (CRT) and modular arithmetic. Achieves near-IEEE accuracy while targeting integer Tensor Cores and DSPs that run at higher efficiency than FP units.",
+  "datacenter": "High relevance to hardware-software co-design: enables next-generation accelerators to provide FP32-equivalent accuracy using INT8 or INT4 Tensor Core paths, improving FLOPS/W and FLOPS/mm² for inference clusters.",
+  "metrics": "Key result signal: accuracy parity with IEEE FP32 GEMM at significantly higher throughput using integer hardware.",
+  "link": ""
+}
