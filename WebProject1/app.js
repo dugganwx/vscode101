@@ -121,7 +121,9 @@ function linkLabel(paper) {
 function rebuildPapers() {
   // Discovery papers are a staging area only — main feed shows local library papers exclusively.
   papers = [...dynamicLocalPapers];
-  if (!papers.some((item) => item.id === selectedPaperId) && papers.length > 0) {
+  const inLocal = papers.some((item) => item.id === selectedPaperId);
+  const inDiscovery = discoveredWebPapers.some((item) => item.id === selectedPaperId);
+  if (!inLocal && !inDiscovery && papers.length > 0) {
     selectedPaperId = papers[0].id;
   }
 }
@@ -492,7 +494,8 @@ async function renderPdfThumbnail(paper) {
 function schedulePdfRenders(container) {
   if (!window.pdfjsLib) return;
   container.querySelectorAll("img[data-paper-id]").forEach((imgEl) => {
-    const paper = papers.find((p) => p.id === imgEl.dataset.paperId);
+    const paper = papers.find((p) => p.id === imgEl.dataset.paperId)
+                || discoveredWebPapers.find((p) => p.id === imgEl.dataset.paperId);
     if (paper) renderPdfThumbnail(paper);
   });
 }
@@ -559,8 +562,21 @@ function renderDiscoveryFeed() {
       </div>
     `;
 
-    card.querySelector(".download-meta-btn").addEventListener("click", () => {
+    card.querySelector(".download-meta-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
       downloadPaperMetadata(paper);
+    });
+
+    card.querySelector(".card-footer-link").addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+
+    card.addEventListener("click", () => {
+      selectedPaperId = paper.id;
+      // Highlight selected discovery card
+      discoveryFeedEl.querySelectorAll(".discovery-card").forEach((c) => c.classList.remove("is-selected"));
+      card.classList.add("is-selected");
+      renderDetail();
     });
 
     discoveryFeedEl.appendChild(card);
@@ -617,10 +633,14 @@ function renderFeed() {
 }
 
 function renderDetail() {
-  const paper = papers.find((item) => item.id === selectedPaperId);
+  const paper = papers.find((item) => item.id === selectedPaperId)
+              || discoveredWebPapers.find((item) => item.id === selectedPaperId);
   if (!paper) return;
 
   const [dkw1, dkw2, dkw3] = extractPaperKeywords(paper);
+  const jumpLink = paper.isDiscovery
+    ? `<span class="discovery-badge-detail">Web Discovery</span>`
+    : `<a class="solid-link" href="#paper-${paper.id}">Jump to Full Section</a>`;
   detailEl.innerHTML = `
     <div class="summary-image-scroller" aria-label="Key topic images for ${paper.title}">
       <div class="keyword-image-pair">
@@ -658,7 +678,7 @@ function renderDetail() {
     </div>
 
     <div class="detail-link-row">
-      <a class="solid-link" href="#paper-${paper.id}">Jump to Full Section</a>
+      ${jumpLink}
       <a class="ghost-link" href="${paper.link}" target="_blank" rel="noopener noreferrer">${linkLabel(paper)}</a>
     </div>
 
@@ -765,16 +785,17 @@ function probeLocalImage(article) {
 }
 
 // Fetches Wikipedia thumbnails and updates all img[data-wiki-article] in container.
-// Falls back to Key Word Images/<article>.png, then to the SVG keyword placeholder.
+// Checks Key Word Images/<article>.png first, then falls back to Wikipedia, then SVG placeholder.
 function scheduleWikiSummaryImages(container) {
   container.querySelectorAll("img[data-wiki-article]").forEach((img) => {
     const article = img.dataset.wikiArticle;
     if (!article) return;
-    fetchWikiThumb(article).then((url) => {
-      if (url && img.isConnected) { img.src = url; return; }
-      // Wikipedia returned nothing — try local keyword image folder.
-      probeLocalImage(article).then((localPath) => {
-        if (localPath && img.isConnected) img.src = localPath;
+    // Local image takes priority — avoids a Wikipedia round-trip when we have our own image.
+    probeLocalImage(article).then((localPath) => {
+      if (localPath && img.isConnected) { img.src = localPath; return; }
+      // No local image — try Wikipedia.
+      fetchWikiThumb(article).then((url) => {
+        if (url && img.isConnected) img.src = url;
         // If neither found, the kwPlaceholder SVG set at render time stays.
       });
     });

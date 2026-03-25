@@ -420,14 +420,30 @@ h1 {
 
 /* Discovery cards are divs (not links) — reset pointer and hover lift */
 .discovery-card {
-  cursor: default;
+  cursor: pointer;
   overflow: visible; /* allow tooltip to extend outside card bounds */
 }
 
 .discovery-card:hover,
 .discovery-card:focus-visible {
-  transform: none;
   box-shadow: 0 4px 10px rgba(19, 32, 40, 0.08);
+}
+
+.discovery-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Badge shown in detail panel in place of "Jump to Full Section" for discovery papers */
+.discovery-badge-detail {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .card-footer {
@@ -597,7 +613,10 @@ h1 {
 }
 
 .detail-panel {
-  min-height: 480px;
+  height: calc(100vh - 116px);
+  position: sticky;
+  top: 18px;
+  overflow-y: auto;
   padding: 20px;
 }
 
@@ -779,7 +798,11 @@ kbd {
   }
 
   .detail-panel {
+    height: auto;
     min-height: 0;
+    position: relative;
+    top: 0;
+    overflow-y: visible;
   }
 
   .paper-card {
