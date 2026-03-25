@@ -305,6 +305,15 @@ const _discoveryQueryPool = [
   "distributed training data parallelism model architecture",
   "AI inference throughput latency serving datacenter optimization",
   "foundation model pretraining scaling laws emergent capabilities",
+  // Extended topic queries
+  "LLM token generation latency speculative decoding autoregressive throughput",
+  "LLM inference cost efficiency token economics serving infrastructure optimization",
+  "agentic AI autonomous LLM agents planning tool use multi-agent systems",
+  "dataflow architecture AI accelerator systolic array neural network hardware",
+  "ARM processor AI inference edge neural network acceleration chip design",
+  "AMD GPU AI accelerator ROCm CDNA MI300 machine learning architecture",
+  "emerging disruptive AI architecture novel neural network paradigm breakthrough",
+  "Nvidia next generation GPU architecture AI HPC accelerator interconnect",
 ];
 let _discoveryQueryIndex = 0;
 
@@ -542,7 +551,10 @@ function renderDiscoveryFeed() {
         <div class="card-meta">${paper.authors} • ${paper.year}</div>
         <div class="card-footer">
           <a class="ghost-link card-footer-link" href="${paper.link}" target="_blank" rel="noopener noreferrer">Open Source</a>
-          <button class="download-meta-btn" type="button">Download Metadata</button>
+          <div class="dl-btn-wrap">
+            <button class="download-meta-btn" type="button">Download Metadata</button>
+            <span class="dl-btn-tip" role="tooltip">Think this paper belongs in the library? Download its metadata and email it to the Administrator — they’ll add it to the Full Paper Summaries.</span>
+          </div>
         </div>
       </div>
     `;

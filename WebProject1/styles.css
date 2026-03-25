@@ -218,6 +218,60 @@ h1 {
   color: var(--muted);
 }
 
+/* ── Find New Papers tooltip ──────────────────────────── */
+.find-btn-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.find-btn-tip {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 224px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(19, 32, 40, 0.13);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--ink);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  z-index: 10;
+  white-space: normal;
+}
+
+/* Downward-pointing triangle caret */
+.find-btn-tip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--line);
+}
+
+.find-btn-tip::before {
+  content: "";
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #ffffff;
+  z-index: 1;
+}
+
+.find-btn-wrap:hover .find-btn-tip,
+#findNewPapersBtn:focus-visible ~ .find-btn-tip {
+  opacity: 1;
+}
+
 .paper-feed-wrap {
   border: 1px solid #d5ded9;
   border-radius: 14px;
@@ -367,6 +421,7 @@ h1 {
 /* Discovery cards are divs (not links) — reset pointer and hover lift */
 .discovery-card {
   cursor: default;
+  overflow: visible; /* allow tooltip to extend outside card bounds */
 }
 
 .discovery-card:hover,
@@ -409,6 +464,58 @@ h1 {
   background: #eef2f8;
   border-color: #10242f;
   outline: none;
+}
+
+/* ── Download Metadata tooltip ────────────────────── */
+.dl-btn-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.dl-btn-tip {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 230px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(19, 32, 40, 0.13);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--ink);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  z-index: 10;
+  white-space: normal;
+}
+
+.dl-btn-tip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--line);
+}
+
+.dl-btn-tip::before {
+  content: "";
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #ffffff;
+  z-index: 1;
+}
+
+.dl-btn-wrap:hover .dl-btn-tip {
+  opacity: 1;
 }
 
 .paper-card:hover,

@@ -44,7 +44,10 @@
           </div>
           <p id="discoveryQuery" class="discovery-copy"></p>
           <div class="discovery-actions">
-            <button id="findNewPapersBtn" class="filter-btn discovery-btn" type="button">Find New Papers</button>
+            <div class="find-btn-wrap">
+              <button id="findNewPapersBtn" class="filter-btn discovery-btn" type="button">Find New Papers</button>
+              <span class="find-btn-tip" role="tooltip">Searches OpenAlex + arXiv for recent AI architecture papers. Results appear in Web Discovery — not added to your library.</span>
+            </div>
             <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready</span>
           </div>
           <div id="discoveryFeed" class="discovery-feed" aria-label="Web search result cards"></div>
