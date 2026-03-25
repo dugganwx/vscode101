@@ -731,15 +731,25 @@ function fetchWikiThumb(article) {
 }
 
 // Resolves a local image path for an article if the file exists in "Key Word Images/".
-// Returns a Promise<string|null> — the path if loadable, null otherwise.
+// Tries case variants in order (exact, lowercase) so e.g. "deepseek.png" matches "DeepSeek".
+// Returns a Promise<string|null> — the first loadable path, or null.
 function probeLocalImage(article) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const path = _localImgBase + article + ".png";
-    img.onload  = () => resolve(path);
-    img.onerror = () => resolve(null);
-    img.src = path;
-  });
+  const candidates = [...new Set([article, article.toLowerCase()])]
+    .map((v) => _localImgBase + v + ".png");
+
+  return candidates.reduce(
+    (chain, path) =>
+      chain.then((found) => {
+        if (found) return found;
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload  = () => resolve(path);
+          img.onerror = () => resolve(null);
+          img.src = path;
+        });
+      }),
+    Promise.resolve(null)
+  );
 }
 
 // Fetches Wikipedia thumbnails and updates all img[data-wiki-article] in container.
