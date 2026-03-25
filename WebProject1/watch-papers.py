@@ -69,6 +69,8 @@ def write_manifest(files):
         f"// Updated: {now.isoformat()}",
         "window.localPapersManifest =",
         json.dumps(files, indent=2) + ";",
+        "window.localPapersMetadata =",
+        json.dumps(metadata, indent=2) + ";",
     ]
     with open(MANIFEST_JS, "w", encoding="utf-8") as fp:
         fp.write("\n".join(lines) + "\n")

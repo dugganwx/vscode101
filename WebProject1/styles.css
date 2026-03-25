@@ -364,6 +364,53 @@ h1 {
   color: inherit;
 }
 
+/* Discovery cards are divs (not links) — reset pointer and hover lift */
+.discovery-card {
+  cursor: default;
+}
+
+.discovery-card:hover,
+.discovery-card:focus-visible {
+  transform: none;
+  box-shadow: 0 4px 10px rgba(19, 32, 40, 0.08);
+}
+
+.card-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.card-footer-link {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.download-meta-btn {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  background: #ffffff;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.download-meta-btn:hover,
+.download-meta-btn:focus-visible {
+  background: #eef2f8;
+  border-color: #10242f;
+  outline: none;
+}
+
 .paper-card:hover,
 .paper-card:focus-visible {
   transform: translateY(-2px);
