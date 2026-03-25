@@ -29,7 +29,12 @@
 
       <div class="filter-strip" role="toolbar" aria-label="Paper category filter">
         <button class="filter-btn is-active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="important">Most Important</button>
+        <div class="important-btn-wrap">
+          <button class="filter-btn" data-filter="important">Most Important</button>
+          <span class="important-btn-tip" role="tooltip">Top 5 papers auto-ranked by hardware-relevance score.
+ Score = Σ(Tier 1 hardware keywords × 4) + Σ(Tier 2 systems keywords × 2) + max(0, 8 − (currentYear − paperYear)).
+ Newer papers score higher on the age term. Admin-pinned papers are exempt.</span>
+        </div>
         <button class="filter-btn" data-filter="read">Most Read</button>
         <button class="filter-btn" data-filter="latest">Latest</button>
       </div>
@@ -55,7 +60,7 @@
 
         <div class="paper-feed-wrap">
           <div class="feed-title-row">
-            <h2>Paper Feed</h2>
+            <h2 id="feedTitle">Paper Feed</h2>
             <span id="feedCount" class="feed-count"></span>
           </div>
           <div id="paperFeed" class="paper-feed" role="listbox" aria-label="Paper cards"></div>

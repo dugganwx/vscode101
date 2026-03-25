@@ -48,15 +48,73 @@ function inferGroups(fileName, year) {
     groups.push("read");
   }
 
-  if (lower.includes("datacenter") || lower.includes("interconnect") || lower.includes("mi300")) {
-    groups.push("important");
-  }
-
-  if (year <= 2021) {
-    groups.push("important");
-  }
-
   return [...new Set(groups)];
+}
+
+// ── Hardware-relevance importance scorer ───────────────────────────────────
+// Scores a paper's full metadata corpus against two tiers of hardware-group
+// keywords plus an age bonus. Used by tagImportantPapers() to elect the top 5.
+//
+// Tier 1 — 4 pts each (accelerator / silicon / interconnect specifics)
+// Tier 2 — 2 pts each (systems / infrastructure topics)
+// Age bonus — added once based on publication year
+const _hwTier1 = [
+  /\bgpu\b/i, /\btpu\b/i, /\bcuda\b/i, /\brocm\b/i, /\baccelerator\b/i,
+  /\basic\b/i, /\bsystolic\b/i, /\bgemm\b/i, /tensor\s*core/i, /matrix\s*core/i,
+  /\binterconnect\b/i, /\bnvlink\b/i, /\binfiniband\b/i, /\bhbm\b/i,
+  /\bbandwidth\b/i, /\bmi300\b/i, /\bcdna\b/i, /\bh100\b/i, /\ba100\b/i,
+  /\bhopper\b/i, /\bblackwell\b/i, /\bdataflow\b/i, /\bphotonic\b/i,
+  /\bflops\b/i, /\bthroughput\b/i, /\btdp\b/i, /\bwafer\b/i,
+];
+const _hwTier2 = [
+  /\binference\b/i, /\bserving\b/i, /quantiz/i, /\bfp8\b/i, /\bfp4\b/i,
+  /\bint8\b/i, /\bsparsit/i, /\bparallelism\b/i, /\bdistributed\b/i,
+  /kv[\s-]?cache/i, /\bdatacenter\b/i, /\btco\b/i, /\blatency\b/i,
+  /\befficiency\b/i, /speculative\s*decod/i, /\bcompression\b/i, /fine[\s-]?tun/i,
+];
+
+function _hwImportanceScore(paper) {
+  const corpus = [
+    paper.title, paper.preview, paper.summary, paper.datacenter, paper.metrics
+  ].join(" ").toLowerCase();
+
+  let score = 0;
+  for (const re of _hwTier1) { if (re.test(corpus)) score += 4; }
+  for (const re of _hwTier2) { if (re.test(corpus)) score += 2; }
+
+  // Age bonus: newer papers score higher — max 8 pts for current-year work,
+  // decaying by 1 pt per year (floor 0). Formula: max(0, 8 − (currentYear − paperYear))
+  const currentYear = new Date().getFullYear();
+  score += Math.max(0, 8 - (currentYear - paper.year));
+
+  paper._importanceScore = score;
+  return score;
+}
+
+// Tags the top 5 scorers as "important". Admin-pinned papers (_hasSidecarGroups)
+// are exempt from auto-scoring — their groups array is treated as a hard override.
+// Called on every rebuildPapers() so the ranking stays current as papers are added.
+function tagImportantPapers(paperList) {
+  const TOP_N = 5;
+  const eligible = paperList.filter((p) => !p._hasSidecarGroups);
+
+  eligible
+    .slice()
+    .sort((a, b) => _hwImportanceScore(b) - _hwImportanceScore(a))
+    .forEach((paper, idx) => {
+      if (idx < TOP_N) {
+        if (!paper.groups.includes("important")) paper.groups.push("important");
+      } else {
+        paper.groups = paper.groups.filter((g) => g !== "important");
+      }
+    });
+
+  const topTitles = eligible
+    .slice()
+    .sort((a, b) => (b._importanceScore ?? 0) - (a._importanceScore ?? 0))
+    .slice(0, TOP_N)
+    .map((p) => `${p.title} (score: ${p._importanceScore})`);
+  console.log("[Importance] Top 5:", topTitles);
 }
 
 function buildLocalPapers(fileNames) {
@@ -64,7 +122,8 @@ function buildLocalPapers(fileNames) {
     const sidecar = _manifestMetadata[fileName] || {};
     const year    = sidecar.year    || inferYear(fileName);
     const title   = sidecar.title   || toDisplayTitle(fileName);
-    const groups  = (Array.isArray(sidecar.groups) && sidecar.groups.length)
+    const hasSidecarGroups = Array.isArray(sidecar.groups) && sidecar.groups.length > 0;
+    const groups  = hasSidecarGroups
                     ? sidecar.groups
                     : inferGroups(fileName, year);
     const relativePath = `${localPaperFolder}/${fileName}`;
@@ -75,6 +134,7 @@ function buildLocalPapers(fileNames) {
       authors:    sidecar.authors    || "Repository Paper",
       year,
       groups,
+      _hasSidecarGroups: hasSidecarGroups,
       preview:    sidecar.preview    || "Local repository entry loaded from your WebProject1 paper folder.",
       summary:    sidecar.summary    || "This entry is pulled from the local paper repository. Add a custom hand-written summary here as you review the paper in detail.",
       datacenter: sidecar.datacenter || "Potentially relevant to accelerator efficiency, cluster architecture, inference economics, or system-level AI deployment tradeoffs.",
@@ -97,6 +157,7 @@ const findNewPapersBtn = document.getElementById("findNewPapersBtn");
 const detailEl = document.getElementById("selectedDetail");
 const sectionEl = document.getElementById("fullSections");
 const feedCountEl = document.getElementById("feedCount");
+const feedTitleEl = document.getElementById("feedTitle");
 const filterButtons = [...document.querySelectorAll(".filter-btn")];
 
 let activeFilter = "all";
@@ -121,6 +182,7 @@ function linkLabel(paper) {
 function rebuildPapers() {
   // Discovery papers are a staging area only — main feed shows local library papers exclusively.
   papers = [...dynamicLocalPapers];
+  tagImportantPapers(papers);
   const inLocal = papers.some((item) => item.id === selectedPaperId);
   const inDiscovery = discoveredWebPapers.some((item) => item.id === selectedPaperId);
   if (!inLocal && !inDiscovery && papers.length > 0) {
@@ -628,6 +690,10 @@ function renderFeed() {
   }
 
   feedCountEl.textContent = `${visible.length} papers`;
+  if (feedTitleEl) {
+    const filterLabel = activeFilter === "all" ? "All" : groupLabel(activeFilter);
+    feedTitleEl.textContent = `Paper Feed — ${filterLabel}`;
+  }
   scheduleWikiSummaryImages(feedEl);
   schedulePdfRenders(feedEl);
 }
@@ -681,8 +747,6 @@ function renderDetail() {
       ${jumpLink}
       <a class="ghost-link" href="${paper.link}" target="_blank" rel="noopener noreferrer">${linkLabel(paper)}</a>
     </div>
-
-    <p class="detail-meta">Keyboard tip: focus a card and press <kbd>Enter</kbd> or <kbd>Space</kbd> to select.</p>
   `;
   scheduleWikiSummaryImages(detailEl);
   schedulePdfRenders(detailEl);
