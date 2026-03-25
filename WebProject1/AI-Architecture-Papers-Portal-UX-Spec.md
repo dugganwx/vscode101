@@ -1,370 +1,577 @@
-# AI Architecture Papers Portal - UX/Product Specification (Static MVP)
+# AI Architecture Papers Portal — UX/Product Specification
 
-**Group Name:** Systems Architecture and Innovation
+**Group:** Systems Architecture and Innovation  
+**Stack:** Vanilla HTML + CSS + JavaScript (no frameworks)  
+**Files:** `index.html`, `styles.css`, `app.js`, `papers-manifest.js`, `papers-manifest.json`, `watch-papers.py`  
+**Last updated:** 2026-03-25
+
+---
 
 ## 1. Product Vision
-Create a high-signal, technically rigorous website that serves as a repository and summarization portal for the most valuable AI architecture papers for datacenter experts.
 
-The portal should help users quickly answer:
-- What papers matter most right now?
-- What papers are most read by practitioners?
-- What is newest and worth immediate attention?
-- For any paper, what are the practical datacenter implications?
+A high-signal, technically rigorous website that serves as a curated repository and summarisation portal for AI architecture papers targeting datacenter hardware professionals.
 
-This first version is static (no backend), but designed to transition cleanly to a dynamic data-driven implementation.
+The portal answers four questions at a glance:
+
+1. What papers matter most to our hardware group right now? → **Most Important** (auto-scored)
+2. What papers are most read by practitioners? → **Most Read**
+3. What is newest and worth immediate attention? → **Latest**
+4. What new research is being published externally? → **Web Discovery** (live search)
+
+---
 
 ## 2. Primary Audience
-- Datacenter architects
-- AI infrastructure engineers
-- ML platform engineers
+
+- Datacenter architects and systems engineers
+- AI infrastructure and ML platform engineers
 - HPC and systems performance engineers
-- Technical leaders evaluating AI stack roadmap decisions
+- Technical leaders evaluating AI accelerator / interconnect roadmap decisions
+
+---
 
 ## 3. Core UX Goals
-- Fast scanning: users should understand value in less than 60 seconds.
-- Trust and depth: summaries must be technically accurate and implementation-oriented.
-- Frictionless discovery: scrollable news-feed style previews that are visually engaging and selectable.
-- Decision support: each paper page/section includes why it matters for compute, memory, networking, and serving.
 
-## 4. Content Model and Groupings
-Each paper can be tagged under one or more primary groups:
-
-1. Most Important
-2. Most Read
-3. Latest
-
-Each paper entry should include:
-- Title
-- Authors / Organization
-- Year
-- Primary tags (training scaling, MoE, inference serving, interconnect, memory optimization, etc.)
-- Read time (for summary)
-- Hero image thumbnail
-- 3-line preview (for feed card)
-- Full summary section
-- Datacenter impact
-- Link to original paper
-
-## 5. Information Architecture
-## 5.1 Main Navigation
-- Home
-- Most Important
-- Most Read
-- Latest
-- All Papers
-- About / Methodology
-
-## 5.2 Home Layout (Main Window)
-1. Hero header
-   - Value proposition: "The technical paper desk for AI datacenter architecture"
-   - Quick filter chips: Important, Read, Latest, Training, Inference, Networking, Memory
-
-2. Scrollable "News Feed" Panel (core requirement)
-   - Vertical, scrollable card list
-   - Each card is selectable (click/tap opens detailed section)
-   - Each card includes a compelling image (diagram/photo/abstract visual)
-   - Sticky sort control: Most Important | Most Read | Latest
-
-3. Featured technical insights strip
-   - 3 concise callouts: "Bandwidth bottleneck", "MoE routing efficiency", "Inference memory pressure"
-
-4. Paper detail area
-   - Inline detail panel on same page for static MVP
-   - Optional anchor navigation to full section further down
-
-## 6. Key Interaction Requirements
-- The news feed must remain scrollable independently from page content on desktop.
-- Cards are keyboard accessible and selectable via Enter/Space.
-- Selection state is visually clear (border, shadow, and section highlight).
-- Selected card updates detail panel with:
-  - Summary
-  - Why it matters for datacenters
-  - Key metrics/results from paper
-  - Link to full paper
-- On mobile, feed appears first, then detail section below.
-
-## 7. Visual/UX Direction
-- Tone: premium technical briefing, not generic blog.
-- Imagery: one interesting image per paper card (architecture diagram crop, system topology, compute rack photo, synthetic technical art).
-- Typography: readable technical serif/sans pairing for authority and scanability.
-- Card hierarchy:
-  - Top: image
-  - Middle: group badges and title
-  - Bottom: 2-3 line summary preview and metadata
-- Color language:
-  - Important = deep red accent
-  - Most Read = cobalt accent
-  - Latest = emerald accent
-
-## 8. Accessibility and Usability
-- WCAG AA contrast minimum.
-- All images must have meaningful alt text.
-- Keyboard-only full navigation.
-- Focus states visible for feed cards and controls.
-- Avoid motion-heavy effects; keep transitions subtle and purposeful.
-
-## 9. Static MVP Technical Notes
-- Static JSON-like structure can be represented directly in HTML as cards and sections.
-- Each card references a local image path (for now placeholder assets).
-- Use anchor links (`#paper-...`) to jump to paper sections.
-- Later dynamic migration path:
-  - Card data from API/CMS
-  - Popularity metrics from analytics pipeline
-  - Latest sorting from publication timestamp
-
-## 10. Seed Paper List (Static Initial Set)
-The list below covers foundational and high-impact architecture/system papers relevant to datacenter experts.
+| Goal | Measure |
+|------|---------|
+| Fast scanning | User identifies top papers in < 60 seconds |
+| Trust and depth | Summaries are technically accurate, implementation-oriented |
+| Frictionless discovery | Scrollable news-feed cards with auto-sourced images |
+| Decision support | Every paper includes datacenter impact and key result signal |
 
 ---
 
-## Paper Section 1: Attention Is All You Need
-- Group: Most Important
-- Year: 2017
-- Authors: Vaswani et al.
-- Suggested card image: Transformer block diagram (attention stack visualization)
-- Summary:
-  - Introduced the Transformer architecture, replacing recurrence with self-attention.
-  - Enabled efficient parallelization during training compared with RNN-based models.
-  - Became the architectural base for modern LLMs and many multimodal systems.
-- Datacenter significance:
-  - Shifted workload characteristics toward dense matrix operations with high memory bandwidth demands.
-  - Established the scaling path that drove large GPU clusters and interconnect-heavy training infrastructure.
-- Link: https://arxiv.org/abs/1706.03762
+## 4. Content Model
 
-## Paper Section 2: BERT: Pre-training of Deep Bidirectional Transformers
-- Group: Most Important, Most Read
-- Year: 2018
-- Authors: Devlin et al.
-- Suggested card image: Encoder-only stack illustration with masked token examples
-- Summary:
-  - Demonstrated bidirectional pretraining and transfer learning gains in NLP tasks.
-  - Validated large-scale pretraining + fine-tuning as a dominant paradigm.
-  - Accelerated enterprise NLP adoption and production inference at scale.
-- Datacenter significance:
-  - Sparked widespread inference deployment needs and cost-sensitive serving optimization.
-  - Increased focus on batching, quantization, and latency-throughput tradeoffs.
-- Link: https://arxiv.org/abs/1810.04805
+### 4.1 Paper Data Fields
 
-## Paper Section 3: Language Models are Unsupervised Multitask Learners (GPT-2)
-- Group: Most Important
-- Year: 2019
-- Authors: Radford et al.
-- Suggested card image: Decoder-only model diagram with scaling axis
-- Summary:
-  - Showed strong zero-shot task performance from generative pretraining.
-  - Reinforced the value of decoder-only scaling for broad capability emergence.
-  - Influenced the architecture trajectory toward larger autoregressive models.
-- Datacenter significance:
-  - Increased demand for high-throughput autoregressive inference with strict latency constraints.
-  - Highlighted memory footprint and token generation efficiency as operational bottlenecks.
-- Link: https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf
+Every paper object (local or discovered) contains:
 
-## Paper Section 4: Language Models are Few-Shot Learners (GPT-3)
-- Group: Most Important, Most Read
-- Year: 2020
-- Authors: Brown et al.
-- Suggested card image: Parameter scaling chart and few-shot prompt concept visual
-- Summary:
-  - Demonstrated strong few-shot performance at 175B parameters.
-  - Cemented scaling laws in practical model development strategy.
-  - Made prompt-based usage mainstream across applications.
-- Datacenter significance:
-  - Exposed extreme training cost and cluster scheduling complexity.
-  - Elevated focus on model-parallel training, optimizer partitioning, and checkpoint strategy.
-- Link: https://arxiv.org/abs/2005.14165
+| Field | Type | Source |
+|-------|------|--------|
+| `id` | string | Auto-generated slug from filename |
+| `title` | string | Sidecar JSON → `toDisplayTitle(fileName)` fallback |
+| `authors` | string | Sidecar JSON → `"Repository Paper"` fallback |
+| `year` | number | Sidecar JSON → regex year from filename → 2024 fallback |
+| `groups` | string[] | Sidecar JSON override → `inferGroups()` + `tagImportantPapers()` |
+| `preview` | string | Sidecar JSON → generic placeholder |
+| `summary` | string | Sidecar JSON → generic placeholder |
+| `datacenter` | string | Sidecar JSON → `inferDatacenterImpact()` |
+| `metrics` | string | Sidecar JSON → `inferKeyResult()` |
+| `link` | string | Sidecar JSON → relative PDF path |
+| `isLocal` | boolean | `true` for local library papers |
+| `isDiscovery` | boolean | `true` for web-discovered papers |
+| `_hasSidecarGroups` | boolean | `true` when admin set explicit `groups` in sidecar JSON |
+| `_importanceScore` | number | Set by `_hwImportanceScore()` during rebuild |
 
-## Paper Section 5: Scaling Laws for Neural Language Models
-- Group: Most Important
-- Year: 2020
-- Authors: Kaplan et al.
-- Suggested card image: Loss vs scale curves for model/data/compute
-- Summary:
-  - Quantified power-law relationships between compute, model size, data, and loss.
-  - Provided planning heuristics for compute-efficient training programs.
-  - Influenced budget allocation and capacity forecasting in AI infrastructure.
-- Datacenter significance:
-  - Supports capex/opex planning for cluster build-outs.
-  - Informs tradeoffs among compute cycles, dataset expansion, and model parameter growth.
-- Link: https://arxiv.org/abs/2001.08361
+### 4.2 Group Taxonomy
 
-## Paper Section 6: Megatron-LM: Training Multi-Billion Parameter Language Models
-- Group: Most Important, Most Read
-- Year: 2019
-- Authors: Shoeybi et al.
-- Suggested card image: Tensor/pipeline parallelism partition diagram
-- Summary:
-  - Introduced practical large-model parallelism strategies for training at scale.
-  - Demonstrated model/tensor parallel methods on large GPU clusters.
-  - Became foundational for modern distributed LLM training stacks.
-- Datacenter significance:
-  - Highlights communication overhead and network topology constraints.
-  - Directly relevant to NVLink/NVSwitch/InfiniBand utilization and scaling efficiency.
-- Link: https://arxiv.org/abs/1909.08053
+| Group | Assignment Method |
+|-------|-------------------|
+| `latest` | Always assigned to every local paper by `inferGroups()` |
+| `read` | Assigned by `inferGroups()` if filename contains "survey", "technical report", or "benchmark" |
+| `important` | Assigned to the **top 5** papers by hardware-relevance score via `tagImportantPapers()` — OR manually set via sidecar JSON `groups` array |
 
-## Paper Section 7: ZeRO: Memory Optimizations Toward Training Trillion Parameter Models
-- Group: Most Important, Most Read
-- Year: 2020
-- Authors: Rajbhandari et al.
-- Suggested card image: Optimizer/gradient/state sharding conceptual chart
-- Summary:
-  - Proposed optimizer state, gradient, and parameter partitioning for memory reduction.
-  - Enabled much larger training jobs without linear memory duplication.
-  - Widely adopted through DeepSpeed and related distributed frameworks.
-- Datacenter significance:
-  - Improves hardware utilization and effective model capacity per cluster.
-  - Reduces memory bottlenecks and shifts performance focus to communication patterns.
-- Link: https://arxiv.org/abs/1910.02054
+### 4.3 Importance Scoring Algorithm
 
-## Paper Section 8: GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding
-- Group: Most Important
-- Year: 2020
-- Authors: Lepikhin et al.
-- Suggested card image: MoE routing and expert dispatch diagram
-- Summary:
-  - Presented sparse MoE scaling with automatic sharding for very large parameter counts.
-  - Reduced per-token compute while increasing representational capacity.
-  - Established design patterns for expert routing at distributed scale.
-- Datacenter significance:
-  - Introduces network-sensitive all-to-all communication behavior.
-  - Makes interconnect design and congestion control key to achieving theoretical efficiency.
-- Link: https://arxiv.org/abs/2006.16668
+The "Most Important" group is determined by a keyword + recency scoring function, not by manual curation.
 
-## Paper Section 9: Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity
-- Group: Most Important, Most Read
-- Year: 2021
-- Authors: Fedus et al.
-- Suggested card image: Top-1 routing expert switch diagram
-- Summary:
-  - Simplified MoE routing to improve training stability and scalability.
-  - Showed sparse architectures can reach trillion-parameter regime efficiently.
-  - Increased practical interest in sparse-dense hybrid infrastructure.
-- Datacenter significance:
-  - Emphasizes balancing expert load and minimizing communication hot spots.
-  - Drives requirements for high-bandwidth, low-latency fabric under irregular traffic.
-- Link: https://arxiv.org/abs/2101.03961
+**Formula:**
 
-## Paper Section 10: PaLM: Scaling Language Modeling with Pathways
-- Group: Most Important, Most Read
-- Year: 2022
-- Authors: Chowdhery et al.
-- Suggested card image: TPU pod scale and pathways system illustration
-- Summary:
-  - Demonstrated strong performance from very large-scale dense language model training.
-  - Combined large compute budgets with robust data/architecture strategy.
-  - Influenced production-level foundation model training programs.
-- Datacenter significance:
-  - Highlights orchestration, checkpoint resilience, and long-run training reliability.
-  - Reinforces need for mature scheduling and fault-tolerant distributed execution.
-- Link: https://arxiv.org/abs/2204.02311
+```
+Score = Σ(Tier 1 keyword matches × 4) + Σ(Tier 2 keyword matches × 2) + max(0, 8 − (currentYear − paperYear))
+```
 
-## Paper Section 11: FlashAttention: Fast and Memory-Efficient Exact Attention
-- Group: Most Important, Most Read
-- Year: 2022
-- Authors: Dao et al.
-- Suggested card image: Tiled attention kernel/memory access visualization
-- Summary:
-  - Introduced IO-aware attention algorithm reducing HBM accesses.
-  - Achieved major speed and memory improvements without approximation.
-  - Became a key kernel-level optimization in training and inference stacks.
-- Datacenter significance:
-  - Shows software-kernel innovation can defer expensive hardware scaling.
-  - Improves throughput per accelerator and cluster-wide efficiency.
-- Link: https://arxiv.org/abs/2205.14135
+**Corpus scanned:** `title + preview + summary + datacenter + metrics` (concatenated, lowercased).
 
-## Paper Section 12: LLaMA: Open and Efficient Foundation Language Models
-- Group: Most Read
-- Year: 2023
-- Authors: Touvron et al.
-- Suggested card image: Parameter-size family comparison chart
-- Summary:
-  - Released strong open model family with favorable performance-to-size profile.
-  - Enabled broader experimentation across academia and enterprise.
-  - Accelerated ecosystem tooling and fine-tuning practices.
-- Datacenter significance:
-  - Expanded demand for cost-efficient inference and fine-tuning infrastructure.
-  - Increased interest in mixed precision, quantization, and serving density optimization.
-- Link: https://arxiv.org/abs/2302.13971
+**Tier 1 keywords (4 pts each — hardware-specific):**  
+`GPU`, `TPU`, `CUDA`, `ROCm`, `accelerator`, `ASIC`, `systolic`, `GEMM`, `tensor core`, `matrix core`, `interconnect`, `NVLink`, `InfiniBand`, `HBM`, `bandwidth`, `MI300`, `CDNA`, `H100`, `A100`, `Hopper`, `Blackwell`, `dataflow`, `photonic`, `FLOPS`, `throughput`, `TDP`, `wafer`
 
-## Paper Section 13: Efficient Memory Management for Large Language Model Serving with PagedAttention (vLLM)
-- Group: Most Important, Latest
-- Year: 2023
-- Authors: Kwon et al.
-- Suggested card image: KV-cache paging and memory block allocator diagram
-- Summary:
-  - Proposed PagedAttention to improve KV cache utilization during serving.
-  - Significantly improved throughput and reduced memory fragmentation.
-  - Helped establish modern high-efficiency LLM serving design.
-- Datacenter significance:
-  - Direct impact on GPU memory utilization and tokens/sec per dollar.
-  - Critical for multi-tenant serving economics in production environments.
-- Link: https://arxiv.org/abs/2309.06180
+**Tier 2 keywords (2 pts each — systems/infrastructure):**  
+`inference`, `serving`, `quantization`, `FP8`, `FP4`, `INT8`, `sparsity`, `parallelism`, `distributed`, `KV cache`, `datacenter`, `TCO`, `latency`, `efficiency`, `speculative decoding`, `compression`, `fine-tuning`
 
-## Paper Section 14: Mistral 7B (and follow-on efficient open models)
-- Group: Latest, Most Read
-- Year: 2023
-- Authors: Jiang et al.
-- Suggested card image: Sliding-window attention concept visual
-- Summary:
-  - Highlighted efficient architecture and training choices for strong small-model performance.
-  - Popularized quality/cost optimization in open model development.
-  - Contributed to practical deployment choices beyond largest-parameter models.
-- Datacenter significance:
-  - Supports right-sizing strategy for workload classes.
-  - Improves fleet efficiency by matching model size to SLA and cost envelopes.
-- Link: https://arxiv.org/abs/2310.06825
+**Age bonus (newer papers score higher):**  
+- Current year (2026): +8
+- 1 year old (2025): +7
+- 2 years old (2024): +6
+- ...decays by 1 per year, floor 0 (papers ≥ 8 years old get +0)
 
-## Paper Section 15: DBRX Technical Report
-- Group: Latest
-- Year: 2024
-- Authors: Databricks
-- Suggested card image: MoE architecture and training/serving stack chart
-- Summary:
-  - Describes a modern open MoE foundation model and production-oriented pipeline.
-  - Emphasizes practical system tradeoffs in training and inference for enterprise usage.
-  - Adds evidence for sparse model viability in real workloads.
-- Datacenter significance:
-  - Relevant to MoE serving architecture and cluster scheduling under mixed loads.
-  - Highlights memory bandwidth and network contention tradeoffs in sparse inference.
-- Link: https://www.databricks.com/blog/introducing-dbrx-new-state-art-open-llm
+**Selection:**
+- Papers with admin-set sidecar `groups` (`_hasSidecarGroups = true`) are **exempt** from auto-scoring — their groups are used as-is.
+- All other papers are scored; the **top 5** get `"important"` added to their `groups` array.
+- Non-top-5 papers have any stale `"important"` tag removed on each rebuild.
+- Scoring runs on every call to `rebuildPapers()` (page load, manifest poll, local refresh).
+- Top 5 titles and scores are logged to the browser console: `[Importance] Top 5: [...]`.
 
 ---
 
-## 11. Home Feed Card Spec (Static)
-Each feed item should use this content structure:
+## 5. Paper Sources
 
-- `id`: unique slug (example: `paper-flashattention`)
-- `group`: Important | Most Read | Latest (one or more)
-- `title`
-- `year`
-- `authors`
-- `image`
-- `imageAlt`
-- `preview`
-- `summaryAnchor` (example: `#paper-flashattention`)
-- `whyItMatters`
+### 5.1 Local Library (Primary)
 
-### Example Card Copy
-Title: FlashAttention: Fast and Memory-Efficient Exact Attention  
-Preview: A kernel-level breakthrough that lowers memory movement in attention and dramatically improves throughput without approximation.  
-Why it matters: Increases accelerator efficiency and reduces cluster-level compute cost.
+Papers are PDFs placed in the `AI papers for WebProject1/` folder alongside optional `.json` sidecar files.
 
-## 12. Editorial Methodology
-- Prioritize papers with strong empirical results and reproducible systems implications.
-- Balance foundational classics with current deployment-relevant publications.
-- For "Most Read," use proxy metrics initially (citations/community traction), then replace with site analytics in dynamic phase.
-- For "Latest," maintain a recency window (e.g., last 18 months).
+**Loading pipeline:**
+1. `watch-papers.py` monitors the folder (5-second poll), generates `papers-manifest.js` and `papers-manifest.json`.
+2. On page load, `papers-manifest.js` is loaded synchronously via `<script>` tag, setting `window.localPapersManifest` (filename array) and `window.localPapersMetadata` (metadata object).
+3. `refreshLocalPapersFromManifest()` reads both globals immediately — works from `file://` and `http://`.
+4. When served over HTTP (`location.hostname` is truthy), `pollManifestJson()` fetches `papers-manifest.json` every **8 seconds** with cache-busting. If the `updated` timestamp changes, the paper feed is fully rebuilt and re-rendered.
 
-## 13. MVP Acceptance Criteria
-- Static homepage contains a scrollable news feed with selectable cards.
-- Each card has an image and links to a full paper summary section.
-- Paper sections include summary + datacenter significance.
-- User can filter by Most Important, Most Read, and Latest.
-- Layout is usable on desktop and mobile.
-- All links and anchor targets function in static hosting.
+**Sidecar JSON format** (placed next to PDF as `filename.json`):
+```json
+{
+  "title": "string",
+  "authors": "string",
+  "year": 2025,
+  "preview": "short preview string",
+  "summary": "longer summary string",
+  "datacenter": "datacenter relevance string",
+  "metrics": "key result signal string",
+  "link": "URL or empty string",
+  "groups": ["important", "latest"]
+}
+```
+- All fields are optional; each one overrides the auto-inferred default.
+- If `groups` is provided and non-empty, it becomes a hard override and the paper is exempt from importance auto-scoring.
 
-## 14. Next Step After This Document
-Use this specification to implement a static HTML/CSS/JS prototype in `WebProject1` with:
-- `index.html`
-- `styles.css`
-- `app.js`
-- `assets/images/*` (placeholder images initially)
+### 5.2 Web Discovery (Secondary — Staging Area Only)
+
+Discovery papers live in a separate panel and are **never promoted to the main feed**. They must be explicitly downloaded as sidecar JSON, placed next to a PDF, and picked up by the manifest pipeline to enter the local library.
+
+**Data sources (fetched via CORS-friendly APIs):**
+- **OpenAlex** (primary): `https://api.openalex.org/works?search={query}&sort=publication_date:desc&filter=publication_date:>{18 months ago}&per-page=15`
+- **arXiv** (secondary): `https://export.arxiv.org/api/query?search_query=cat:cs.LG AND (transformer OR llm OR "mixture of experts" OR attention OR architecture)&sortBy=submittedDate&sortOrder=descending&max_results=8`
+
+Both are fetched via `Promise.allSettled()` — partial failures are tolerated.
+
+**Rotating query pool (16 queries, advances 1 per click):**
+1. LLM transformer architecture mixture of experts attention mechanism
+2. large language model inference serving GPU efficiency
+3. mixture of experts sparse neural network scaling
+4. flash attention KV cache transformer memory optimization
+5. LLM quantization compression fine-tuning efficiency
+6. distributed training data parallelism model architecture
+7. AI inference throughput latency serving datacenter optimization
+8. foundation model pretraining scaling laws emergent capabilities
+9. LLM token generation latency speculative decoding autoregressive throughput
+10. LLM inference cost efficiency token economics serving infrastructure optimization
+11. agentic AI autonomous LLM agents planning tool use multi-agent systems
+12. dataflow architecture AI accelerator systolic array neural network hardware
+13. ARM processor AI inference edge neural network acceleration chip design
+14. AMD GPU AI accelerator ROCm CDNA MI300 machine learning architecture
+15. emerging disruptive AI architecture novel neural network paradigm breakthrough
+16. Nvidia next generation GPU architecture AI HPC accelerator interconnect
+
+**Deduplication:**
+- Cross-dedup: discovery results matching a local library paper title are removed.
+- Self-dedup: duplicate titles within discovery results are collapsed.
+- Hard cap: **24** discovery results retained.
+
+---
+
+## 6. Information Architecture
+
+### 6.1 Page Structure (top to bottom)
+
+```
+┌─────────────────────────────────────────────┐
+│  <header class="hero">                      │
+│    Eyebrow · Title · Description            │
+│    Filter strip: All | Most Important |     │
+│                  Most Read | Latest          │
+└─────────────────────────────────────────────┘
+┌─────────────────────┬───────────────────────┐
+│ <aside feed-panel>  │ <section detail-panel> │
+│  ┌─ Discovery ────┐ │  Keyword image trio    │
+│  │  Web Discovery  │ │  Title · Authors · Yr  │
+│  │  Find New Papers│ │  Groups                │
+│  │  [cards...]     │ │  Summary               │
+│  └────────────────┘ │  Why It Matters         │
+│  ┌─ Paper Feed ───┐ │  Key Result Signal      │
+│  │  Paper Feed —   │ │  Jump / Open link       │
+│  │   {filter}      │ │                         │
+│  │  [cards...]     │ │                         │
+│  └────────────────┘ │                         │
+│  ┌─ Search ───────┐ │                         │
+│  │  Search Full    │ │                         │
+│  │  Paper Summaries│ │                         │
+│  └────────────────┘ │                         │
+└─────────────────────┴───────────────────────┘
+┌─────────────────────────────────────────────┐
+│  <section full-sections-wrap>               │
+│    Full Paper Summaries                     │
+│    [article per paper...]                   │
+└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│  <footer>                                   │
+└─────────────────────────────────────────────┘
+```
+
+### 6.2 CSS Layout Details
+
+| Property | Value |
+|----------|-------|
+| Max width | `1200px`, centered |
+| Grid columns | `minmax(320px, 390px) 1fr` |
+| Grid gap | `18px` |
+| Alignment | `align-items: stretch` (both panels match tallest column) |
+| Feed panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `height: 100%` |
+| Detail panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `overflow-y: auto` |
+
+### 6.3 Mobile Breakpoint (`@media max-width: 960px`)
+
+| Component | Desktop | Mobile |
+|-----------|---------|--------|
+| Grid columns | `minmax(320px, 390px) 1fr` | `1fr` (single column) |
+| Feed panel | sticky, fixed max-height | `position: relative`, `height: auto` |
+| Detail panel | sticky, fixed max-height | `position: relative`, `overflow-y: visible` |
+| Card image width | `128px` | `104px` |
+| Discovery feed max-height | `250px` | `280px` |
+
+**Reduced motion:** `@media (prefers-reduced-motion: reduce)` removes all transitions site-wide.
+
+---
+
+## 7. UI Components
+
+### 7.1 Filter Strip
+
+Located in the `<header>` below the hero text. Four buttons in a `role="toolbar"` flex row:
+
+| Button | `data-filter` | Default state |
+|--------|--------------|---------------|
+| All | `all` | `is-active` (default) |
+| Most Important | `important` | Has hover tooltip (see below) |
+| Most Read | `read` | — |
+| Latest | `latest` | — |
+
+**Behaviour:** Clicking a filter sets `activeFilter`, toggles `is-active` class, re-renders the feed and detail panel. The feed title updates to `"Paper Feed — {filter label}"`.
+
+**Most Important tooltip** (on hover / focus-visible):
+> Top 5 papers auto-ranked by hardware-relevance score.  
+> Score = Σ(Tier 1 hardware keywords × 4) + Σ(Tier 2 systems keywords × 2) + max(0, 8 − (currentYear − paperYear)).  
+> Newer papers score higher on the age term. Admin-pinned papers are exempt.
+
+The tooltip is wrapped in `<div class="important-btn-wrap">` with a `<span class="important-btn-tip" role="tooltip">` sibling, displayed via CSS `:hover` / `:focus-visible` (no JS). It uses a downward-pointing caret arrow and fades in at 160ms.
+
+### 7.2 Discovery Panel
+
+Located at the top of the feed panel. Contains:
+
+- **Title row:** "Web Discovery" + result count badge (`#discoveryCount`)
+- **"Find New Papers" button** (`#findNewPapersBtn`): triggers `handleFindNewPapers()`. Has a hover tooltip explaining it searches OpenAlex + arXiv and results stay in the staging area.
+- **Status text** (`#discoveryStatus`): shows "Ready", "Searching...", "Updated — N results (M already in your library)", or error messages. Uses `aria-live="polite"`.
+- **Discovery feed** (`#discoveryFeed`): scrollable card list.
+
+**Discovery card structure:**
+```
+<div class="paper-card discovery-card">
+  <img class="card-image" data-wiki-article="..." data-paper-id="..." />
+  <div class="card-body">
+    <div class="card-tags"><span class="tag latest">Discovery</span></div>
+    <h3 class="card-title">...</h3>
+    <p class="card-preview">...</p>
+    <div class="card-meta">{authors} • {year}</div>
+    <div class="card-footer">
+      <a class="ghost-link card-footer-link" href="..." target="_blank">Open Source</a>
+      <div class="dl-btn-wrap">
+        <button class="download-meta-btn">Download Metadata</button>
+        <span class="dl-btn-tip" role="tooltip">Think this paper belongs in the
+        library? Download its metadata and email it to the Administrator —
+        they'll add it to the Full Paper Summaries.</span>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+**Click behaviour:** Clicking a discovery card sets `selectedPaperId`, highlights the card with `is-selected` class (accent border + 2px box-shadow), and renders the paper in the detail panel. Footer buttons (`Open Source`, `Download Metadata`) use `stopPropagation()` to prevent card selection.
+
+**Download Metadata:** Generates a sidecar-format `.json` file with `title`, `authors`, `year`, `preview`, `summary`, `datacenter`, `metrics`, `link`. Downloaded via `URL.createObjectURL()` + a temporary `<a>` click.
+
+### 7.3 Paper Feed Panel
+
+Located below the discovery panel. Contains:
+
+- **Title row:** `<h2 id="feedTitle">Paper Feed</h2>` — dynamically updates to `"Paper Feed — All"`, `"Paper Feed — Most Important"`, etc., reflecting the active filter.
+- **Count badge:** (`#feedCount`) shows `"N papers"`.
+- **Paper feed** (`#paperFeed`, `role="listbox"`): scrollable card list.
+
+**Paper card structure:**
+```
+<button class="paper-card [is-selected]" type="button" role="option"
+        aria-selected="true|false" aria-label="Select {title}">
+  <img class="card-image" data-wiki-article="..." data-paper-id="..." />
+  <div class="card-body">
+    <div class="card-tags">
+      <span class="tag {groupClass}">{groupLabel}</span>
+      ...
+    </div>
+    <h3 class="card-title">...</h3>
+    <p class="card-preview">...</p>
+    <div class="card-meta">{authors} • {year}</div>
+  </div>
+</button>
+```
+
+Cards are `<button>` elements (not `<div>`) for native keyboard accessibility.
+
+### 7.4 Summary Search
+
+Located below the paper feed. Filters the Full Paper Summaries section.
+
+- **Input:** `<input id="summarySearch" type="search">` with a search icon SVG.
+- **Count:** `<span id="summarySearchCount">` shows "N matches" or "No matches".
+- **Behaviour:** On `input` event, sections not matching the query get `summary-section--hidden` class. Matching text nodes are wrapped in `<mark class="summary-search-highlight">` (background `#d6f5e3`). Uses `TreeWalker` with `SHOW_TEXT` filter for safe DOM-based highlighting (no innerHTML injection). Pressing `Escape` clears the search and blurs the input.
+
+### 7.5 Detail Panel
+
+Sticky right column showing the currently selected paper's full details.
+
+**Sections rendered by `renderDetail()`:**
+
+1. **Keyword image trio** — three `<figure class="keyword-figure">` elements in a flex row, each with `<img class="summary-kw-image">` + `<figcaption class="keyword-label">`. Images are 100% width × 180px height, `object-fit: cover`.
+2. **Title** — `<h2>`
+3. **Metadata** — `"{authors} • {year}"` and `"Groups: {group labels}"`
+4. **Summary** — `<div class="detail-summary">`
+5. **Why It Matters for Datacenters** — `<div class="detail-matters">`
+6. **Key Result Signal** — `<div class="detail-metrics">`
+7. **Action links** — For local papers: `<a class="solid-link" href="#paper-{id}">Jump to Full Section</a>` + `<a class="ghost-link" href="{link}">Open Local PDF</a>`. For discovery papers: `<span class="discovery-badge-detail">Web Discovery</span>` + `<a class="ghost-link" href="{link}">Open Discovery Source</a>`.
+
+### 7.6 Full Paper Summaries
+
+Below the two-column layout. Each paper renders as:
+```
+<article class="paper-section" id="paper-{id}">
+  <h3>{title}</h3>
+  [keyword image trio]
+  <p><strong>Authors:</strong> ...</p>
+  <p><strong>Year:</strong> ...</p>
+  <p><strong>Category:</strong> ...</p>
+  <p><strong>Summary:</strong> ...</p>
+  <p><strong>Datacenter Significance:</strong> ...</p>
+  <p><strong>Key Result Signal:</strong> ...</p>
+  <p><a href="{link}">{linkLabel}</a></p>
+</article>
+```
+
+---
+
+## 8. Image System
+
+### 8.1 Keyword Image Resolution Chain
+
+Each paper gets **3 keyword images** derived from `extractPaperKeywords(paper)`, which scans `title + preview + summary` against 25 ordered regex→Wikipedia-article mappings (`_termWikiArticle`). First 3 unique matches win; unfilled slots default to "Large language model", "Artificial neural network", "Deep learning".
+
+**Resolution order (per image, first match wins):**
+1. **Local PNG:** `Key Word Images/{article}.png` (tries exact case, then lowercase). Probed via `new Image()` load test.
+2. **Wikipedia thumbnail:** `https://en.wikipedia.org/api/rest_v1/page/summary/{article}` → `originalimage.source` or `thumbnail.source`. Cached in `_wikiImgCache` Map. Concurrent fetches are deduplicated via `_wikiPromiseMap`.
+3. **SVG placeholder:** inline data URI SVG (`300×200`, `#eef2f8` background, monospace keyword text). Acts as permanent fallback if neither local nor Wikipedia image is found.
+
+### 8.2 Keyword-to-Article Mapping (25 entries)
+
+| Regex pattern | Wikipedia article |
+|---------------|-------------------|
+| `large language model\|llms?` | Large language model |
+| `mixture.of.expert\|moe` | Mixture of experts |
+| `transformer` | Transformer (deep learning) |
+| `quantiz` | Quantization (signal processing) |
+| `attention mechanism` | Attention (machine learning) |
+| `deep.?seek` | DeepSeek |
+| `llama` | Llama (language model) |
+| `mistral` | Mistral AI |
+| `agentic\|agent` | Intelligent agent |
+| `photonic\|optical interconnect` | Photonics |
+| `dataflow` | Dataflow architecture |
+| `kv.cache\|key.value cache` | Cache (computing) |
+| `benchmark` | Benchmark (computing) |
+| `gpu\|graphics processing` | Graphics processing unit |
+| `tpu\|tensor processing` | Tensor processing unit |
+| `floating.point\|fp8\|fp4\|nvfp` | Floating-point arithmetic |
+| `gemm\|matrix mult` | Matrix multiplication |
+| `cuda` | CUDA |
+| `fine.tun` | Fine-tuning (deep learning) |
+| `survey` | Academic publishing |
+| `sparse` | Sparse matrix |
+| `memory` | Computer memory |
+| `interconnect` | Network on a chip |
+| `inference` | Machine learning |
+| `neural network\|deep learning` | Artificial neural network |
+
+### 8.3 PDF.js Thumbnails
+
+For papers with a fetchable PDF URL, page 1 is rendered as a JPEG thumbnail via PDF.js 3.11.174.
+
+- **Render width:** 480px (scaled proportionally)
+- **JPEG quality:** 0.82
+- **Cache:** `_thumbnailCache` Map (`paper.id` → data URL). In-flight renders tracked in `_renderingSet` to prevent duplicates.
+- **URL derivation (`getPaperPdfUrl`):**
+  - Local papers: use `paper.link` (relative PDF path)
+  - arXiv abstract pages: replace `/abs/` with `/pdf/`
+  - Discovery arXiv links: extract paper ID via regex, construct `/pdf/{id}`
+  - Direct `.pdf` URLs: use as-is
+  - HTML pages: return `null` (keep SVG/wiki fallback)
+
+---
+
+## 9. Design Language
+
+### 9.1 Typography
+
+- **Primary:** Space Grotesk (sans-serif) — headings, UI, metadata
+- **Secondary:** Spectral (serif) — body text, summaries
+- **Monospace fallback:** for keyword labels and SVG placeholders
+
+### 9.2 Color Variables
+
+```css
+--bg: #f4f6f2         /* page background */
+--panel: #fcfdfc       /* card/panel background */
+--ink: #132028         /* primary text */
+--muted: #4a5d66       /* secondary text */
+--line: #c8d2cf        /* borders */
+--important: #9e2f2f   /* Most Important badge — deep red */
+--read: #205ea6        /* Most Read badge — cobalt */
+--latest: #1f6b54      /* Latest badge — emerald */
+--accent: #c66b2f      /* discovery highlights, selected state */
+--radius: 18px         /* standard border radius */
+--shadow: 0 12px 30px rgba(19, 32, 40, 0.12)
+```
+
+### 9.3 Tag Badges
+
+| Group | CSS class | Background color |
+|-------|-----------|-----------------|
+| Most Important | `.tag.important` | `#9e2f2f` |
+| Most Read | `.tag.read` | `#205ea6` |
+| Latest | `.tag.latest` | `#1f6b54` |
+| Discovery | `.tag.latest` (reused) | `#1f6b54` |
+
+### 9.4 Interactive States
+
+| Element | Hover | Selected |
+|---------|-------|----------|
+| Filter button | `translateY(-1px)` + box-shadow | Dark ink background, white text, `is-active` class |
+| Paper card | — | `is-selected` class (border + shadow) |
+| Discovery card | `cursor: pointer` | `is-selected` class (accent border + `0 0 0 2px var(--accent)` box-shadow) |
+| Discovery badge (detail) | — | Inline `discovery-badge-detail` span: accent background, white text, 6px padding |
+
+---
+
+## 10. Accessibility
+
+- **WCAG AA contrast** on all text/background combinations.
+- Paper cards are `<button>` elements with `role="option"`, `aria-selected`, and `aria-label`.
+- Filter strip uses `role="toolbar"` with `aria-label="Paper category filter"`.
+- Discovery status uses `aria-live="polite"` for screen reader announcements.
+- All images have `alt` text (keyword name or paper title).
+- Focus states are visible on all interactive elements (`:focus-visible` selectors).
+- Summary search count uses `aria-live="polite"`.
+- `@media (prefers-reduced-motion: reduce)` disables all transitions and animations.
+
+---
+
+## 11. Tooling: watch-papers.py
+
+A Python utility that automates manifest generation and provides a development server.
+
+| Feature | Detail |
+|---------|--------|
+| Monitored folder | `AI papers for WebProject1/` |
+| Poll interval | 5 seconds |
+| Outputs | `papers-manifest.js` (JS globals), `papers-manifest.json` (JSON) |
+| Sidecar loading | Reads `filename.json` next to `filename.pdf`; only safe fields (no `id`/`groups`/`isLocal` injection) |
+| HTTP server | Port 5500 |
+| Live reload | SSE endpoint at `/changes`; sends `"reload"` message when manifest changes; heartbeat every 25 seconds |
+| CLI mode | `python watch-papers.py --once` generates manifests and exits without starting the server |
+
+**Browser-side reload** (in `index.html`):
+```javascript
+var es = new EventSource("/changes");
+es.onmessage = function (e) { if (e.data === "reload") location.reload(); };
+es.onerror = function () { es.close(); };
+```
+Only activates when served via HTTP (`location.hostname` is truthy); silent no-op from `file://`.
+
+---
+
+## 12. Auto-Inference Functions
+
+When sidecar metadata is missing, the system infers values from the PDF filename and generic context:
+
+| Function | Input | Output |
+|----------|-------|--------|
+| `slugify(value)` | filename | lowercase slug for paper ID |
+| `inferYear(fileName)` | filename | 4-digit year via regex, default 2024 |
+| `toDisplayTitle(fileName)` | filename | human-readable title (strips `.pdf`, numbers, underscores) |
+| `inferGroups(fileName, year)` | filename, year | `["latest"]` always; adds `"read"` if filename contains "survey", "technical report", or "benchmark". Does **not** assign `"important"` — that is solely handled by `tagImportantPapers()`. |
+| `inferDatacenterImpact(text)` | title + summary | One of 4 datacenter relevance strings based on keyword detection (MoE/inference/dataflow/generic) |
+| `inferKeyResult(text, year)` | summary, year | Extracts first numeric metric or generates a generic recency signal |
+
+---
+
+## 13. Key HTML Element IDs
+
+| ID | Element | Purpose |
+|----|---------|---------|
+| `findNewPapersBtn` | `<button>` | Triggers web discovery search |
+| `discoveryFeed` | `<div>` | Container for discovery cards |
+| `discoveryCount` | `<span>` | Shows "N results" in discovery header |
+| `discoveryStatus` | `<span>` | Live status text for discovery operations |
+| `feedTitle` | `<h2>` | Dynamic title: "Paper Feed — {filter}" |
+| `feedCount` | `<span>` | Shows "N papers" in feed header |
+| `paperFeed` | `<div>` | Container for local library cards |
+| `selectedDetail` | `<div>` | Detail panel content target |
+| `fullSections` | `<div>` | Full Paper Summaries container |
+| `summarySearch` | `<input>` | Search input for full summaries |
+| `summarySearchCount` | `<span>` | Match count for summary search |
+
+---
+
+## 14. Constraints and Invariants
+
+1. **Discovery papers never enter the main feed.** They exist only in the Web Discovery panel. To promote a discovery paper to the library, an admin must download its metadata JSON, add a PDF to the local folder, place the JSON sidecar alongside it, and run `watch-papers.py`.
+2. **The importance scoring auto-runs on every rebuild.** There is no manual "rank" button; `tagImportantPapers()` is called inside `rebuildPapers()` every time papers are loaded or refreshed.
+3. **Top-N is fixed at 5.** There is no UI control to change the number of "Most Important" papers.
+4. **Sidecar `groups` are a hard override.** If an admin sets `"groups"` in a sidecar JSON, that paper's groups are locked to whatever the admin specified, and the paper is excluded from importance auto-scoring entirely.
+5. **No backend authentication.** The site is a static page served from the filesystem or a simple HTTP server. All data is local files + public API calls.
+6. **Discovery API calls are CORS-friendly.** Both OpenAlex and arXiv support unauthenticated CORS requests, enabling the site to work from `file://` and any origin.
+7. **PDF.js is loaded from CDN.** Version 3.11.174 from cdnjs. Worker source is set once at load.
+8. **Wikipedia image API is unauthenticated.** Fetches from `en.wikipedia.org/api/rest_v1/page/summary/`. Rate limits are managed by caching — each article is fetched at most once per session.
+
+---
+
+## 15. Acceptance Criteria
+
+- [ ] Page loads and displays all local PDFs from the `AI papers for WebProject1/` folder.
+- [ ] Papers with sidecar JSON show their custom title, authors, year, summary, and datacenter text.
+- [ ] Filter buttons (All, Most Important, Most Read, Latest) correctly filter the paper feed; only matching papers are shown.
+- [ ] The "Paper Feed" title updates to reflect the active filter (e.g., "Paper Feed — Most Important").
+- [ ] Exactly 5 papers appear when "Most Important" filter is selected (auto-scored, excluding admin-pinned papers from the scoring pool).
+- [ ] Hovering over "Most Important" button shows a tooltip describing the scoring formula.
+- [ ] "Find New Papers" button fetches results from OpenAlex + arXiv and populates the Web Discovery panel.
+- [ ] Discovery results are cross-deduped against the local library and self-deduped by title.
+- [ ] Clicking a discovery card renders it in the detail panel with a "Web Discovery" badge instead of a "Jump to Full Section" link.
+- [ ] "Download Metadata" button on discovery cards triggers a JSON file download in sidecar format.
+- [ ] Keyword images resolve: local PNG → Wikipedia thumbnail → SVG placeholder.
+- [ ] PDF thumbnails render for local PDFs and arXiv discovery papers.
+- [ ] Summary search filters Full Paper Summaries sections and highlights matching text.
+- [ ] Layout is responsive: two-column sticky on desktop, single-column stacked on mobile (breakpoint 960px).
+- [ ] All interactive elements are keyboard accessible with visible focus states.
+- [ ] `@media (prefers-reduced-motion: reduce)` disables all animations.
+- [ ] Console logs `[Importance] Top 5:` with paper titles and scores on each rebuild.
+
+---
+
+## 16. Seed Paper Library
+
+Papers are loaded dynamically from the `AI papers for WebProject1/` folder via `papers-manifest.js`. The static seed list from the original spec (Attention Is All You Need, BERT, GPT-2/3, Scaling Laws, Megatron-LM, ZeRO, GShard, Switch Transformers, PaLM, FlashAttention, LLaMA, vLLM, Mistral 7B, DBRX) has been superseded by the live filesystem-driven approach. Any PDF placed in the folder is automatically indexed; sidecar JSON provides editorial metadata.
+
+---
+
+## 17. Future Migration Path
+
+- Card data from API/CMS (replacing filesystem + sidecar JSON)
+- "Most Read" populated by real analytics pipeline (replacing filename heuristics)
+- Importance scoring weights tunable via admin UI
+- User-facing score display and sort-by-score option
+- Authentication for admin-only metadata editing
