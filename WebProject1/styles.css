@@ -196,13 +196,11 @@ h1 {
 .feed-panel {
   padding: 14px;
   min-height: 0;
-  max-height: calc(100dvh - var(--header-offset, 116px));
   position: sticky;
   top: 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  scrollbar-gutter: stable;
 }
 
 .discovery-panel {
@@ -692,12 +690,9 @@ h1 {
 }
 
 .detail-panel {
-  max-height: calc(100dvh - var(--header-offset, 116px));
   position: sticky;
   top: 18px;
-  overflow-y: auto;
   padding: 20px;
-  scrollbar-gutter: stable;
 }
 
 .detail-image {
