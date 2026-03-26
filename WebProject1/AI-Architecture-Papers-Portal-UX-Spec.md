@@ -214,18 +214,42 @@ Both are fetched via `Promise.allSettled()` — partial failures are tolerated.
 | Grid columns | `minmax(320px, 390px) 1fr` |
 | Grid gap | `18px` |
 | Alignment | `align-items: stretch` (both panels match tallest column) |
-| Feed panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `height: 100%` |
-| Detail panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `overflow-y: auto` |
+| Overflow | `overflow-x: hidden` on `.layout` to prevent horizontal page scroll |
+| Feed panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `min-height: 0`, `scrollbar-gutter: stable` |
+| Detail panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `overflow-y: auto`, `scrollbar-gutter: stable` |
+| Discovery feed | `max-height: min(250px, 30vh)` — shrinks on short viewports |
+| Paper feed | `max-height: min(380px, 35vh)` — shrinks on short viewports |
+| Summary image | `min-width: min(760px, 100%)` — fits within container on narrow screens |
 
-### 6.3 Mobile Breakpoint (`@media max-width: 960px`)
+### 6.3 Responsive Breakpoints
+
+**Small laptops (`@media max-width: 1100px`)**
+
+| Component | Desktop (> 1100px) | Small laptop (960–1100px) |
+|-----------|-------------------|---------------------------|
+| Grid columns | `minmax(320px, 390px) 1fr` | `minmax(280px, 340px) 1fr` |
+| Grid gap | `18px` | `14px` |
+| Feed card image | `128px` | `100px` |
+
+**Mobile (`@media max-width: 960px`)
 
 | Component | Desktop | Mobile |
 |-----------|---------|--------|
 | Grid columns | `minmax(320px, 390px) 1fr` | `1fr` (single column) |
 | Feed panel | sticky, fixed max-height | `position: relative`, `height: auto` |
-| Detail panel | sticky, fixed max-height | `position: relative`, `overflow-y: visible` |
+| Detail panel | sticky, fixed max-height | `position: relative`, `max-height: none`, `overflow-y: visible` |
 | Card image width | `128px` | `104px` |
-| Discovery feed max-height | `250px` | `280px` |
+| Discovery feed max-height | `min(250px, 30vh)` | `280px` |
+| Summary image min-width | `min(760px, 100%)` | `min(560px, 100%)` |
+
+**Narrow viewports (`@media max-width: 600px`)**
+
+- All tooltips (`.important-btn-tip`, `.find-btn-tip`, `.dl-btn-tip`) are capped at `max-width: calc(100vw - 32px)` to prevent off-screen overflow.
+- The "Most Important" tooltip repositions to left-aligned (no centering transform) with the caret arrow shifted to `left: 24px`.
+
+**Cross-browser: scrollbar stability**
+
+- `scrollbar-gutter: stable` on `.feed-panel`, `.detail-panel`, `.paper-feed`, and `.discovery-feed` prevents layout shift when scrollbars appear/disappear (especially visible in Edge).
 
 **Reduced motion:** `@media (prefers-reduced-motion: reduce)` removes all transitions site-wide.
 
