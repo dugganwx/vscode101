@@ -1014,7 +1014,24 @@ function bindFilters() {
   }
 }
 
+/* ── Dynamic header offset ───────────────────────────────────────────
+   Measures the hero header and sets --header-offset so the sticky
+   panels always fill exactly the remaining viewport height,
+   regardless of zoom level or header text wrapping.
+   ─────────────────────────────────────────────────────────────────── */
+function updateHeaderOffset() {
+  const hero = document.querySelector('.hero');
+  if (!hero) return;
+  document.documentElement.style.setProperty(
+    '--header-offset',
+    hero.offsetHeight + 18 + 'px'   // 18px = sticky top gap
+  );
+}
+
 function init() {
+  updateHeaderOffset();
+  window.addEventListener('resize', updateHeaderOffset);
+
   rebuildPapers();
 
   if (findNewPapersBtn) {

@@ -215,11 +215,15 @@ Both are fetched via `Promise.allSettled()` — partial failures are tolerated.
 | Grid gap | `18px` |
 | Alignment | `align-items: stretch` (both panels match tallest column) |
 | Overflow | `overflow-x: hidden` on `.layout` to prevent horizontal page scroll |
-| Feed panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `min-height: 0`, `scrollbar-gutter: stable` |
-| Detail panel | `max-height: calc(100vh - 116px)`, `position: sticky`, `top: 18px`, `overflow-y: auto`, `scrollbar-gutter: stable` |
-| Discovery feed | `max-height: min(250px, 30vh)` — shrinks on short viewports |
-| Paper feed | `max-height: min(380px, 35vh)` — shrinks on short viewports |
+| Feed panel | `max-height: calc(100dvh - var(--header-offset, 116px))`, `position: sticky`, `top: 18px`, `scrollbar-gutter: stable` |
+| Detail panel | `max-height: calc(100dvh - var(--header-offset, 116px))`, `position: sticky`, `top: 18px`, `overflow-y: auto`, `scrollbar-gutter: stable` |
+| Discovery feed | `max-height: clamp(120px, 30dvh, 250px)` — guaranteed minimum of 120px even at extreme zoom |
+| Paper feed | `max-height: clamp(160px, 35dvh, 380px)` — guaranteed minimum of 160px even at extreme zoom |
 | Summary image | `min-width: min(760px, 100%)` — fits within container on narrow screens |
+
+**Dynamic header offset (`--header-offset`):**
+
+`updateHeaderOffset()` in `app.js` measures `document.querySelector('.hero').offsetHeight + 18` (px) on page load and on every `resize` event, then writes the result to `--header-offset` on `<html>`. This replaces the former hardcoded `116px` value and ensures the sticky panels fill exactly the remaining viewport height regardless of zoom level, DPI scaling, or header text wrapping. The `18px` accounts for the sticky `top` gap. Uses `100dvh` (dynamic viewport height) instead of `100vh` for accurate sizing when browser chrome appears/disappears on mobile.
 
 ### 6.3 Responsive Breakpoints
 
@@ -230,6 +234,7 @@ Both are fetched via `Promise.allSettled()` — partial failures are tolerated.
 | Grid columns | `minmax(320px, 390px) 1fr` | `minmax(280px, 340px) 1fr` |
 | Grid gap | `18px` | `14px` |
 | Feed card image | `128px` | `100px` |
+| Card image min-height | `116px` | `80px` |
 
 **Mobile (`@media max-width: 960px`)
 
@@ -239,7 +244,7 @@ Both are fetched via `Promise.allSettled()` — partial failures are tolerated.
 | Feed panel | sticky, fixed max-height | `position: relative`, `height: auto` |
 | Detail panel | sticky, fixed max-height | `position: relative`, `max-height: none`, `overflow-y: visible` |
 | Card image width | `128px` | `104px` |
-| Discovery feed max-height | `min(250px, 30vh)` | `280px` |
+| Discovery feed max-height | `clamp(120px, 30dvh, 250px)` | `280px` |
 | Summary image min-width | `min(760px, 100%)` | `min(560px, 100%)` |
 
 **Narrow viewports (`@media max-width: 600px`)**
@@ -279,9 +284,11 @@ The tooltip is wrapped in `<div class="important-btn-wrap">` with a `<span class
 
 ### 7.2 Discovery Panel
 
-Located at the top of the feed panel. Contains:
+Located at the top of the feed panel. Uses a `<details open>` element so users can **collapse** the panel to reclaim vertical space on constrained screens.
 
-- **Title row:** "Web Discovery" + result count badge (`#discoveryCount`)
+Contains:
+
+- **Title row (`<summary>`):** "Web Discovery" + result count badge (`#discoveryCount`). Clicking the summary row toggles the panel open/closed. A `▾`/`▴` caret indicator (CSS `::after`) shows the current state.
 - **"Find New Papers" button** (`#findNewPapersBtn`): triggers `handleFindNewPapers()`. Has a hover tooltip explaining it searches OpenAlex + arXiv and results stay in the staging area.
 - **Status text** (`#discoveryStatus`): shows "Ready", "Searching...", "Updated — N results (M already in your library)", or error messages. Uses `aria-live="polite"`.
 - **Discovery feed** (`#discoveryFeed`): scrollable card list.

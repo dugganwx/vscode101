@@ -196,7 +196,7 @@ h1 {
 .feed-panel {
   padding: 14px;
   min-height: 0;
-  max-height: calc(100vh - 116px);
+  max-height: calc(100dvh - var(--header-offset, 116px));
   position: sticky;
   top: 18px;
   display: flex;
@@ -212,6 +212,29 @@ h1 {
   padding: 10px;
 }
 
+/* Collapsible toggle styling for <details> */
+.discovery-panel summary.feed-title-row {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.discovery-panel summary.feed-title-row::-webkit-details-marker {
+  display: none;
+}
+
+.discovery-panel summary.feed-title-row::after {
+  content: "\25BE";
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-left: 6px;
+  transition: transform 180ms ease;
+}
+
+.discovery-panel[open] summary.feed-title-row::after {
+  content: "\25B4";
+}
+
 .discovery-copy {
   margin: 0 4px 8px;
   color: var(--muted);
@@ -219,7 +242,7 @@ h1 {
 }
 
 .discovery-feed {
-  max-height: min(250px, 30vh);
+  max-height: clamp(120px, 30dvh, 250px);
   overflow-y: auto;
   display: grid;
   gap: 8px;
@@ -430,7 +453,7 @@ h1 {
 }
 
 .paper-feed {
-  max-height: min(380px, 35vh);
+  max-height: clamp(160px, 35dvh, 380px);
   overflow-y: auto;
   display: grid;
   gap: 8px;
@@ -669,7 +692,7 @@ h1 {
 }
 
 .detail-panel {
-  max-height: calc(100vh - 116px);
+  max-height: calc(100dvh - var(--header-offset, 116px));
   position: sticky;
   top: 18px;
   overflow-y: auto;
@@ -886,6 +909,14 @@ kbd {
 
   .paper-feed .paper-card {
     grid-template-columns: 100px 1fr;
+  }
+
+  .paper-feed .card-image {
+    min-height: 80px;
+  }
+
+  .card-image {
+    min-height: 80px;
   }
 }
 

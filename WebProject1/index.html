@@ -42,11 +42,11 @@
 
     <main class="layout">
       <aside class="feed-panel" aria-label="Scrollable paper news feed">
-        <div class="discovery-panel" aria-label="Web discovery results">
-          <div class="feed-title-row">
+        <details class="discovery-panel" open aria-label="Web discovery results">
+          <summary class="feed-title-row">
             <h2>Web Discovery</h2>
             <span id="discoveryCount" class="feed-count">Seeded Results</span>
-          </div>
+          </summary>
           <p id="discoveryQuery" class="discovery-copy"></p>
           <div class="discovery-actions">
             <div class="find-btn-wrap">
@@ -56,7 +56,7 @@
             <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready</span>
           </div>
           <div id="discoveryFeed" class="discovery-feed" aria-label="Web search result cards"></div>
-        </div>
+        </details>
 
         <div class="paper-feed-wrap">
           <div class="feed-title-row">
