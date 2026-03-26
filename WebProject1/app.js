@@ -176,7 +176,7 @@ function groupClass(group) {
 
 function linkLabel(paper) {
   if (paper.isDiscovery) return "Open Discovery Source";
-  return paper.isLocal ? "Open Local PDF" : "Read Original Paper";
+  return paper.isLocal ? "Open PDF" : "Read Original Paper";
 }
 
 function rebuildPapers() {
