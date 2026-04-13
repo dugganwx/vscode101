@@ -1028,7 +1028,16 @@ function updateHeaderOffset() {
   );
 }
 
+function updateVisitCounter() {
+  const el = document.getElementById("visitCounter");
+  if (!el) return;
+  const count = parseInt(localStorage.getItem("visitCount") || "0", 10) + 1;
+  localStorage.setItem("visitCount", String(count));
+  el.textContent = `Page visits: ${count}`;
+}
+
 function init() {
+  updateVisitCounter();
   updateHeaderOffset();
   window.addEventListener('resize', updateHeaderOffset);
 

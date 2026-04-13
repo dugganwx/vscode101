@@ -843,6 +843,11 @@ h1 {
   font-size: 0.88rem;
 }
 
+#visitCounter {
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
 kbd {
   border: 1px solid #bcc7c3;
   border-bottom-width: 2px;
