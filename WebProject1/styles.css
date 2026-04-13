@@ -844,8 +844,11 @@ h1 {
 }
 
 #visitCounter {
-  margin-top: 6px;
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 kbd {
