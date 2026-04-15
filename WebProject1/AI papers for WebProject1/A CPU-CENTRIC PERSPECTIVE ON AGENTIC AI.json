@@ -1,0 +1,10 @@
+{
+  "title": "A CPU-Centric Perspective on Agentic AI",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Examines the role of CPUs in agentic AI workloads, arguing that multi-step agent pipelines involve significant non-GPU compute including orchestration, tool execution, retrieval, and control flow.",
+  "summary": "Presents a CPU-centric analysis of agentic AI systems where autonomous agents perform planning, tool use, and multi-step reasoning. While GPU acceleration dominates LLM inference, the paper highlights that agent orchestration layers, data retrieval, function calling, memory management, and inter-agent communication are CPU-bound tasks. Discusses how CPU microarchitecture features — branch prediction, cache hierarchy, and thread scheduling — directly impact end-to-end agent latency, and argues for co-optimising CPU and GPU subsystems in agentic deployments.",
+  "datacenter": "Directly relevant to datacenter architecture decisions. As agentic AI shifts workload profiles from pure GPU inference toward heterogeneous CPU+GPU pipelines, server SKU selection, CPU-to-GPU ratios, and memory hierarchy design must account for the CPU-bound orchestration overhead in multi-agent systems.",
+  "metrics": "Key result signal: analysis of CPU utilisation and latency contribution in agentic AI pipelines, quantifying the orchestration overhead that is invisible in GPU-only benchmarks.",
+  "link": ""
+}

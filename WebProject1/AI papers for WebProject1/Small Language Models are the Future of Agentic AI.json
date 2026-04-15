@@ -1,0 +1,10 @@
+{
+  "title": "Small Language Models Are the Future of Agentic AI",
+  "authors": "Multiple Authors",
+  "year": 2025,
+  "preview": "Argues that small language models (SLMs) are better suited for agentic AI deployments than frontier-scale LLMs, offering lower latency, reduced cost, and more predictable resource consumption for multi-step agent pipelines.",
+  "summary": "Makes the case that agentic AI systems — which require many sequential LLM calls for planning, tool use, and reasoning — benefit disproportionately from small, efficient language models rather than large frontier models. Analyses the compounding latency and cost of multi-step agent workflows, showing that SLMs fine-tuned for specific agent tasks can match or exceed large model performance at a fraction of the inference cost. Covers distillation, task-specific fine-tuning, and model routing strategies for deploying SLMs in production agent systems.",
+  "datacenter": "High relevance to datacenter capacity and TCO planning. If agentic workloads shift toward many small-model calls instead of fewer large-model calls, GPU memory requirements decrease but throughput and scheduling complexity increase — favouring dense, high-throughput inference servers over memory-heavy configurations.",
+  "metrics": "Key result signal: cost and latency comparisons between SLM-based and LLM-based agent pipelines, with projections for datacenter-scale deployment efficiency.",
+  "link": ""
+}
