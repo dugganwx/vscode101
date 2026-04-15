@@ -1,0 +1,15 @@
+#!/bin/sh
+# Post-commit hook: regenerate paper manifests when PDFs or JSONs change
+# in the papers folder. Runs watch-papers.py --once to update both
+# papers-manifest.js and papers-manifest.json.
+
+changed=$(git diff-tree --no-commit-id --name-only -r HEAD -- \
+  "WebProject1/AI papers for WebProject1/")
+
+if [ -n "$changed" ]; then
+  echo "[post-commit] Paper files changed — regenerating manifests..."
+  (cd "$(git rev-parse --show-toplevel)/WebProject1" && py watch-papers.py --once)
+  git add WebProject1/papers-manifest.js WebProject1/papers-manifest.json
+  git commit --amend --no-edit --no-verify
+  echo "[post-commit] Manifests updated and amended into commit."
+fi

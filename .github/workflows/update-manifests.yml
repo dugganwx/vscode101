@@ -1,0 +1,32 @@
+name: Update Paper Manifests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'WebProject1/AI papers for WebProject1/**'
+
+jobs:
+  update-manifests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Regenerate manifests
+        working-directory: WebProject1
+        run: python watch-papers.py --once
+
+      - name: Commit updated manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add WebProject1/papers-manifest.js WebProject1/papers-manifest.json
+          git diff --cached --quiet || git commit -m "chore: regenerate paper manifests [skip ci]"
+          git push
