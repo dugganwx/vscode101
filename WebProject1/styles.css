@@ -291,6 +291,31 @@ h1 {
   100% { box-shadow: 0 0 0 0   rgba(198, 107, 47, 0);    }
 }
 
+.discovery-range {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.discovery-range label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.discovery-range input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+  cursor: pointer;
+}
+
 .discovery-status {
   font-size: 0.78rem;
   color: var(--muted);

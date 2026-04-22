@@ -325,7 +325,8 @@ function toDiscoveryPaperFromOpenAlex(entry, index) {
     datacenter: inferDatacenterImpact(`${title} ${summaryBase}`),
     metrics: inferKeyResult(summaryBase, year),
     link,
-    isDiscovery: true
+    isDiscovery: true,
+    _pubDate: entry.publication_date || `${year}-01-01`
   };
 }
 
@@ -355,7 +356,46 @@ function toDiscoveryPaperFromArxiv(entry, index) {
     datacenter: inferDatacenterImpact(`${title} ${summaryBase}`),
     metrics: inferKeyResult(summaryBase, year),
     link,
-    isDiscovery: true
+    isDiscovery: true,
+    _pubDate: published || `${year}-01-01`
+  };
+}
+
+// Map a Semantic Scholar paper object to our internal paper model
+function toDiscoveryPaperFromSemanticScholar(entry, index) {
+  const title = (entry.title || "Untitled discovery paper").trim();
+  const pubDate = entry.publicationDate || "";
+  const year = pubDate
+    ? parseInt(pubDate.slice(0, 4), 10)
+    : (entry.year || new Date().getFullYear());
+  const authors =
+    Array.isArray(entry.authors) && entry.authors.length > 0
+      ? entry.authors.slice(0, 3).map((a) => a.name).filter(Boolean).join(", ")
+      : "Semantic Scholar";
+  const link =
+    entry.url ||
+    (entry.externalIds?.ArXiv
+      ? `https://arxiv.org/abs/${entry.externalIds.ArXiv}`
+      : "https://www.semanticscholar.org/");
+  const abstract = cleanAbstract(entry.abstract || "");
+  const summaryBase =
+    abstract.length > 60
+      ? abstract.slice(0, 320)
+      : "This result was discovered from Semantic Scholar and appears relevant to LLM architecture, MoE, or dataflow optimization.";
+
+  return {
+    id: `web-live-${slugify(`${title}-${year}-ss-${index}`)}`,
+    title,
+    authors,
+    year,
+    groups: ["latest", "read"],
+    preview: summaryBase.slice(0, 148),
+    summary: `${summaryBase}${summaryBase.endsWith(".") ? "" : "."}`,
+    datacenter: inferDatacenterImpact(`${title} ${summaryBase}`),
+    metrics: inferKeyResult(summaryBase, year),
+    link,
+    isDiscovery: true,
+    _pubDate: pubDate || `${year}-01-01`
   };
 }
 
@@ -381,6 +421,15 @@ const _discoveryQueryPool = [
 ];
 let _discoveryQueryIndex = 0;
 
+// OpenAlex concept IDs for concept-based filtering (rotated alongside keyword queries)
+const _conceptPool = [
+  "https://openalex.org/C154945302", // Machine Learning
+  "https://openalex.org/C108583219", // Computer Hardware
+  "https://openalex.org/C41008148",  // Artificial Intelligence
+  "https://openalex.org/C38652104",  // Computer Network
+  "https://openalex.org/C86803240",  // Computer Architecture
+];
+
 // Returns an ISO date string for N months in the past (e.g. "2024-09-23")
 function _monthsAgoDate(months) {
   const d = new Date();
@@ -393,18 +442,34 @@ async function fetchDiscoveredPapers() {
   const queryText = _discoveryQueryPool[_discoveryQueryIndex % _discoveryQueryPool.length];
   _discoveryQueryIndex++;
 
-  const since = _monthsAgoDate(18);
+  const rangeEl = document.querySelector('input[name="discoveryRange"]:checked');
+  const months = rangeEl ? parseInt(rangeEl.value, 10) : 1;
+  const since = _monthsAgoDate(months);
   const openAlexUrl = `https://api.openalex.org/works?search=${encodeURIComponent(
     queryText
   )}&sort=publication_date:desc&filter=publication_date:>${since}&per-page=15`;
+
+  // OpenAlex concept-based fetch (rotates through _conceptPool)
+  const conceptId = _conceptPool[_discoveryQueryIndex % _conceptPool.length];
+  const openAlexConceptUrl = `https://api.openalex.org/works?filter=concepts.id:${encodeURIComponent(
+    conceptId
+  )},publication_date:>${since}&sort=publication_date:desc&per-page=8`;
 
   const arxivUrl = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(
     "cat:cs.LG AND (transformer OR llm OR \"mixture of experts\" OR attention OR architecture)"
   )}&sortBy=submittedDate&sortOrder=descending&max_results=8`;
 
-  const [openAlexResult, arxivResult] = await Promise.allSettled([
+  // Semantic Scholar fetch
+  const sinceYear = new Date(since).getFullYear();
+  const ssUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
+    queryText
+  )}&year=${sinceYear}-&limit=8&fields=title,authors,abstract,year,externalIds,url,publicationDate`;
+
+  const [openAlexResult, openAlexConceptResult, arxivResult, ssResult] = await Promise.allSettled([
     fetch(openAlexUrl, { headers: { Accept: "application/json" } }),
+    fetch(openAlexConceptUrl, { headers: { Accept: "application/json" } }),
     fetch(arxivUrl),
+    fetch(ssUrl, { headers: { Accept: "application/json" } }),
   ]);
 
   const results = [];
@@ -415,6 +480,12 @@ async function fetchDiscoveredPapers() {
     results.push(...rows.map((entry, i) => toDiscoveryPaperFromOpenAlex(entry, i)));
   }
 
+  if (openAlexConceptResult.status === "fulfilled" && openAlexConceptResult.value.ok) {
+    const payload = await openAlexConceptResult.value.json();
+    const rows = Array.isArray(payload.results) ? payload.results : [];
+    results.push(...rows.map((entry, i) => toDiscoveryPaperFromOpenAlex(entry, results.length + i)));
+  }
+
   if (arxivResult.status === "fulfilled" && arxivResult.value.ok) {
     const xml = await arxivResult.value.text();
     const doc = new DOMParser().parseFromString(xml, "application/xml");
@@ -422,7 +493,17 @@ async function fetchDiscoveredPapers() {
     results.push(...entries.map((entry, i) => toDiscoveryPaperFromArxiv(entry, results.length + i)));
   }
 
-  if (results.length === 0) throw new Error("No results from OpenAlex or arXiv");
+  if (ssResult.status === "fulfilled" && ssResult.value.ok) {
+    const payload = await ssResult.value.json();
+    const rows = Array.isArray(payload.data) ? payload.data : [];
+    results.push(...rows.map((entry, i) => toDiscoveryPaperFromSemanticScholar(entry, results.length + i)));
+  }
+
+  if (results.length === 0) throw new Error("No results from OpenAlex, arXiv, or Semantic Scholar");
+
+  // Global sort by publication date — newest first, interleaved across all sources
+  results.sort((a, b) => new Date(b._pubDate) - new Date(a._pubDate));
+
   return results;
 }
 
@@ -441,7 +522,7 @@ function dedupeDiscoveredPapers(nextPapers) {
     return true;
   });
 
-  return { papers: merged.slice(0, 24), skipped };
+  return { papers: merged.slice(0, 30), skipped };
 }
 
 async function handleFindNewPapers() {
