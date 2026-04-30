@@ -140,6 +140,7 @@ function buildLocalPapers(fileNames) {
       datacenter: sidecar.datacenter || "Potentially relevant to accelerator efficiency, cluster architecture, inference economics, or system-level AI deployment tradeoffs.",
       metrics:    sidecar.metrics    || "Key result signal not yet extracted. Review and annotate this item for production use.",
       link:       sidecar.link       || encodeURI(relativePath),
+      infographic: sidecar.infographic || "",
       isLocal: true
     };
   });
@@ -788,23 +789,32 @@ function renderDetail() {
   const jumpLink = paper.isDiscovery
     ? `<span class="discovery-badge-detail">Web Discovery</span>`
     : `<a class="solid-link" href="#paper-${paper.id}">Jump to Full Section</a>`;
+
+  const detailImageBlock = paper.infographic
+    ? `<div class="summary-image-scroller" aria-label="Infographic for ${paper.title}">
+        <figure class="infographic-figure">
+          <img class="paper-infographic" src="${encodeURI(paper.infographic)}" alt="Infographic for ${paper.title}" />
+        </figure>
+      </div>`
+    : `<div class="summary-image-scroller" aria-label="Key topic images for ${paper.title}">
+        <div class="keyword-image-pair">
+          <figure class="keyword-figure">
+            <img class="summary-kw-image" src="${kwPlaceholder(dkw1)}" alt="${dkw1}" data-wiki-article="${dkw1}" data-paper-id="${paper.id}" />
+            <figcaption class="keyword-label">${dkw1}</figcaption>
+          </figure>
+          <figure class="keyword-figure">
+            <img class="summary-kw-image" src="${kwPlaceholder(dkw2)}" alt="${dkw2}" data-wiki-article="${dkw2}" />
+            <figcaption class="keyword-label">${dkw2}</figcaption>
+          </figure>
+          <figure class="keyword-figure">
+            <img class="summary-kw-image" src="${kwPlaceholder(dkw3)}" alt="${dkw3}" data-wiki-article="${dkw3}" />
+            <figcaption class="keyword-label">${dkw3}</figcaption>
+          </figure>
+        </div>
+      </div>`;
+
   detailEl.innerHTML = `
-    <div class="summary-image-scroller" aria-label="Key topic images for ${paper.title}">
-      <div class="keyword-image-pair">
-        <figure class="keyword-figure">
-          <img class="summary-kw-image" src="${kwPlaceholder(dkw1)}" alt="${dkw1}" data-wiki-article="${dkw1}" data-paper-id="${paper.id}" />
-          <figcaption class="keyword-label">${dkw1}</figcaption>
-        </figure>
-        <figure class="keyword-figure">
-          <img class="summary-kw-image" src="${kwPlaceholder(dkw2)}" alt="${dkw2}" data-wiki-article="${dkw2}" />
-          <figcaption class="keyword-label">${dkw2}</figcaption>
-        </figure>
-        <figure class="keyword-figure">
-          <img class="summary-kw-image" src="${kwPlaceholder(dkw3)}" alt="${dkw3}" data-wiki-article="${dkw3}" />
-          <figcaption class="keyword-label">${dkw3}</figcaption>
-        </figure>
-      </div>
-    </div>
+    ${detailImageBlock}
     <h2>${paper.title}</h2>
     <p class="detail-meta">${paper.authors} • ${paper.year}</p>
     <p class="detail-meta">Groups: ${paper.groups.map(groupLabel).join(", ")}</p>
@@ -962,25 +972,32 @@ function renderFullSections() {
   sectionEl.innerHTML = papers
     .map((paper) => {
       const [kw1, kw2, kw3] = extractPaperKeywords(paper);
+      const sectionImageBlock = paper.infographic
+        ? `<div class="summary-image-scroller" aria-label="Infographic for ${paper.title}">
+            <figure class="infographic-figure">
+              <img class="paper-infographic" src="${encodeURI(paper.infographic)}" alt="Infographic for ${paper.title}" />
+            </figure>
+          </div>`
+        : `<div class="summary-image-scroller" aria-label="Key topic images for ${paper.title}">
+            <div class="keyword-image-pair">
+              <figure class="keyword-figure">
+                <img class="summary-kw-image" src="${kwPlaceholder(kw1)}" alt="${kw1}" data-wiki-article="${kw1}" />
+                <figcaption class="keyword-label">${kw1}</figcaption>
+              </figure>
+              <figure class="keyword-figure">
+                <img class="summary-kw-image" src="${kwPlaceholder(kw2)}" alt="${kw2}" data-wiki-article="${kw2}" />
+                <figcaption class="keyword-label">${kw2}</figcaption>
+              </figure>
+              <figure class="keyword-figure">
+                <img class="summary-kw-image" src="${kwPlaceholder(kw3)}" alt="${kw3}" data-wiki-article="${kw3}" />
+                <figcaption class="keyword-label">${kw3}</figcaption>
+              </figure>
+            </div>
+          </div>`;
       return `
       <article class="paper-section" id="paper-${paper.id}">
         <h3>${paper.title}</h3>
-        <div class="summary-image-scroller" aria-label="Key topic images for ${paper.title}">
-          <div class="keyword-image-pair">
-            <figure class="keyword-figure">
-              <img class="summary-kw-image" src="${kwPlaceholder(kw1)}" alt="${kw1}" data-wiki-article="${kw1}" />
-              <figcaption class="keyword-label">${kw1}</figcaption>
-            </figure>
-            <figure class="keyword-figure">
-              <img class="summary-kw-image" src="${kwPlaceholder(kw2)}" alt="${kw2}" data-wiki-article="${kw2}" />
-              <figcaption class="keyword-label">${kw2}</figcaption>
-            </figure>
-            <figure class="keyword-figure">
-              <img class="summary-kw-image" src="${kwPlaceholder(kw3)}" alt="${kw3}" data-wiki-article="${kw3}" />
-              <figcaption class="keyword-label">${kw3}</figcaption>
-            </figure>
-          </div>
-        </div>
+        ${sectionImageBlock}
         <p><strong>Authors:</strong> ${paper.authors}</p>
         <p><strong>Year:</strong> ${paper.year}</p>
         <p><strong>Category:</strong> ${paper.groups.map(groupLabel).join(", ")}</p>

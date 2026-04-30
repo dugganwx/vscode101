@@ -3,7 +3,7 @@
     "1.Krste .pdf",
     "20. AMD_Matrix_Cores.pdf",
     "2025-10-device-based-optical-thermodynamics-route.pdf",
-    "A CPU-CENTRIC PERSPECTIVE ON AGENTIC AI.pdf",
+    "A CPU Centric Perspective on Agentic AI.pdf",
     "A GEMM-oriented emulation of floating-point matrix multipication using an integer modular technique.pdf",
     "A Survey of Low-bit Large Language Models Basics, Systems, and Algorithms.pdf",
     "A Survey on Efficient Inference for Large Language Models.pdf",
@@ -24,8 +24,8 @@
     "Expert-Specialized Fine-Tuning for (1).pdf",
     "HadaCore Tensor Core Accelerated Hadamard Transform Kernel.pdf",
     "Intelligent cache prefetchers in HPC architecture.pdf",
-    "KIMI K2 - Open Agentic Intelligence.pdf",
-    "LongCat (1).pdf",
+    "KIMI K2 Open Agentic Intelligence.pdf",
+    "LongCat.pdf",
     "Low-bit Model Quantization for Deep Neural Networks A Survey.pdf",
     "OCP_Microscaling Formats (MX) v1.0 Spec_Final.pdf",
     "Pretraining Large Language Models with NVFP4.pdf",
@@ -34,7 +34,7 @@
     "Verified Sparse Attention.pdf",
     "amd-instinct-mi300-cdna3-instruction-set-architecture.pdf"
   ],
-  "updated": "2026-04-15T15:38:16.877275",
+  "updated": "2026-04-30T14:47:00.420191",
   "metadata": {
     "1.Krste .pdf": {
       "title": "Agile Hardware Design \u2014 Krste Asanovi\u0107",
@@ -66,7 +66,8 @@
       "metrics": "Key result signal: theoretical energy-per-MAC bounds for optical matrix devices compared to CMOS baselines.",
       "link": ""
     },
-    "A CPU-CENTRIC PERSPECTIVE ON AGENTIC AI.pdf": {
+    "A CPU Centric Perspective on Agentic AI.pdf": {
+      "infographic": "AI papers for WebProject1/A CPU Centric Perspective on Agentic AI.jpg",
       "title": "A CPU-Centric Perspective on Agentic AI",
       "authors": "Multiple Authors",
       "year": 2025,
@@ -197,6 +198,7 @@
       "link": ""
     },
     "DeepSeek-V3 Technical Report.pdf": {
+      "infographic": "AI papers for WebProject1/DeepSeek-V3 Technical Report.jpeg",
       "title": "DeepSeek-V3 Technical Report",
       "authors": "DeepSeek AI",
       "year": 2024,
@@ -276,7 +278,8 @@
       "metrics": "Key result signal: DRAM bandwidth utilisation and cache miss rate reduction for HPC workloads with intelligent prefetch enabled.",
       "link": ""
     },
-    "KIMI K2 - Open Agentic Intelligence.pdf": {
+    "KIMI K2 Open Agentic Intelligence.pdf": {
+      "infographic": "AI papers for WebProject1/KIMI K2 Open Agentic Intelligence.jpg",
       "title": "Kimi K2: Open Agentic Intelligence",
       "authors": "Moonshot AI",
       "year": 2025,
@@ -286,7 +289,8 @@
       "metrics": "Key result signal: state-of-the-art performance on agentic benchmarks at comparable or lower active parameter count versus dense alternatives.",
       "link": ""
     },
-    "LongCat (1).pdf": {
+    "LongCat.pdf": {
+      "infographic": "AI papers for WebProject1/LongCat.jpeg",
       "title": "LongCat: Efficient Long-Context Attention for Language Models",
       "authors": "Multiple Authors",
       "year": 2025,
@@ -327,6 +331,7 @@
       "link": ""
     },
     "Small Language Models are the Future of Agentic AI.pdf": {
+      "infographic": "AI papers for WebProject1/Small Language Models are the Future of Agentic AI.jpg",
       "title": "Small Language Models Are the Future of Agentic AI",
       "authors": "Multiple Authors",
       "year": 2025,

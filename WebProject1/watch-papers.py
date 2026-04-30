@@ -43,6 +43,14 @@ def load_sidecar_metadata(files):
     metadata = {}
     for fname in files:
         base = os.path.splitext(fname)[0]
+
+        # Auto-detect a .jpg infographic with the same base name as the PDF
+        for ext in (".jpg", ".JPG", ".jpeg", ".JPEG"):
+            jpg_path = os.path.join(FOLDER, base + ext)
+            if os.path.exists(jpg_path):
+                metadata.setdefault(fname, {})["infographic"] = FOLDER + "/" + base + ext
+                break
+
         jpath = os.path.join(FOLDER, base + ".json")
         if not os.path.exists(jpath):
             continue
@@ -50,12 +58,14 @@ def load_sidecar_metadata(files):
             with open(jpath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             # Only keep known safe fields — never let sidecar inject id/groups/isLocal
-            metadata[fname] = {k: data[k] for k in
+            sidecar = {k: data[k] for k in
                 ("title", "authors", "year", "preview", "summary",
-                 "datacenter", "metrics", "link")
+                 "datacenter", "metrics", "link", "infographic")
                 if k in data}
+            metadata[fname] = {**metadata.get(fname, {}), **sidecar}
         except Exception as e:
             print(f"  [warn] Could not read sidecar {jpath}: {e}")
+
     return metadata
 
 

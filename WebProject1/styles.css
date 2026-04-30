@@ -818,6 +818,21 @@ h1 {
   object-fit: cover;
 }
 
+/* ── Per-paper infographic (replaces keyword icons when .jpg exists) ──── */
+.infographic-figure {
+  margin: 0;
+  padding: 10px;
+}
+
+.paper-infographic {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid #d7dfdb;
+  background: #eef2f8;
+}
+
 /* ── Wikipedia keyword image pair (full paper summaries) ───────────────── */
 .keyword-image-pair {
   display: flex;
