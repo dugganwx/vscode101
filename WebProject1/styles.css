@@ -58,6 +58,7 @@ body {
 }
 
 .hero {
+  position: relative;
   max-width: 1200px;
   margin: 24px auto 16px;
   padding: 28px 24px 14px;
@@ -898,6 +899,230 @@ kbd {
   background: #f6f8f6;
   padding: 1px 4px;
   font-size: 0.78rem;
+}
+
+/* ── Upload panel ─────────────────────────────────────────────────── */
+.upload-panel {
+  border: 1px solid #d5ded9;
+  border-radius: 14px;
+  background: #f8fbf9;
+  padding: 10px;
+}
+
+.upload-panel summary.feed-title-row::after {
+  content: "\25BE";
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-left: 6px;
+  transition: transform 180ms ease;
+}
+
+.upload-panel[open] summary.feed-title-row::after {
+  content: "\25B4";
+}
+
+/* ── Auth pages ──────────────────────────────────────────────────────────── */
+
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.auth-card {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 3rem 2.5rem;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 4px 24px rgba(19, 32, 40, .08);
+}
+
+.auth-card .eyebrow {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: .7rem;
+  letter-spacing: .14em;
+  color: var(--accent);
+  margin: 0 0 .5rem;
+  text-transform: uppercase;
+}
+
+.auth-title {
+  font-family: 'Spectral', serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 .35rem;
+}
+
+.auth-subtitle {
+  font-size: .95rem;
+  color: var(--ink-muted, #6b7a84);
+  margin: 0 0 1.5rem;
+}
+
+.auth-error {
+  background: #fdf0ef;
+  color: #a8322d;
+  border: 1px solid #f3c9c6;
+  border-radius: 8px;
+  padding: .65rem 1rem;
+  font-size: .875rem;
+  margin-bottom: 1rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+
+.auth-label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--ink);
+  margin-top: .5rem;
+}
+
+.auth-input {
+  padding: .6rem .85rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  font-size: .95rem;
+  font-family: 'Space Grotesk', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 180ms ease;
+}
+
+.auth-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(198, 107, 47, .12);
+}
+
+.auth-btn {
+  margin-top: 1.25rem;
+  padding: .7rem 1.2rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .95rem;
+  font-weight: 600;
+  font-family: 'Space Grotesk', sans-serif;
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+
+.auth-btn:hover {
+  background: #b35e28;
+}
+
+.auth-footer {
+  text-align: center;
+  font-size: .85rem;
+  color: var(--ink-muted, #6b7a84);
+  margin-top: 1.25rem;
+}
+
+.auth-footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.auth-footer a:hover {
+  text-decoration: underline;
+}
+
+.auth-hint {
+  text-align: center;
+  font-size: .8rem;
+  color: var(--accent);
+  margin-top: .75rem;
+  font-style: italic;
+}
+
+/* ── Logout link in header ────────────────────────────────────────────────── */
+
+.logout-link {
+  position: absolute;
+  top: 1.2rem;
+  right: 1.5rem;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+  padding: .35rem .75rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  transition: background 180ms ease, color 180ms ease;
+}
+
+.logout-link:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+
+/* ── Edit form + shared form styles ──────────────────────────────── */
+.edit-paper-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.edit-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  background: #fff;
+  color: var(--ink);
+  transition: border-color 140ms ease;
+}
+
+.edit-input:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.edit-textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+/* ── Delete button style ─────────────────────────────────────────── */
+.delete-paper-btn {
+  color: var(--important);
+  border-color: var(--important);
+}
+
+.delete-paper-btn:hover {
+  background: var(--important);
+  color: #fff;
 }
 
 @media (max-width: 960px) {

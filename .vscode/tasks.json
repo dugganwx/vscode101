@@ -2,9 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Start Paper Watcher",
+      "label": "Start Flask Server",
       "type": "shell",
-      "command": "python watch-papers.py",
+      "command": "python app.py",
       "options": {
         "cwd": "${workspaceFolder}/WebProject1"
       },
@@ -25,9 +25,9 @@
       }
     },
     {
-      "label": "Refresh Manifest (one-shot)",
+      "label": "Migrate Papers to DB",
       "type": "shell",
-      "command": "python watch-papers.py --once",
+      "command": "python migrate.py",
       "options": {
         "cwd": "${workspaceFolder}/WebProject1"
       },
