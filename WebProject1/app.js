@@ -1,19 +1,10 @@
-// Papers come from two sources only:
-//   1. "AI papers for WebProject1/" folder (PDFs + JSON sidecars via papers-manifest.json)
-//   2. "Find New Papers" button (OpenAlex scholarly article search)
+// Papers come from two sources:
+//   1. Flask API (/api/papers) — local PDFs + SQLite metadata
+//   2. Flask discovery proxy (/api/discover) — OpenAlex, arXiv, Semantic Scholar
 let discoveredWebPapers = [];
 
-
 const localPaperFolder = "AI papers for WebProject1";
-// localPaperFiles is seeded from papers-manifest.json at runtime.
-// Add PDFs to the "AI papers for WebProject1" folder and run watch-papers.py
-// to regenerate the manifest — the page will pick up new files automatically.
-let localPaperFiles = [];
 let dynamicLocalPapers = [];
-
-// Sidecar metadata from papers-manifest.json: maps PDF filename → metadata object.
-// Populated by pollManifestJson(); used by buildLocalPapers() to override defaults.
-let _manifestMetadata = {};
 
 function slugify(value) {
   return value
@@ -117,33 +108,69 @@ function tagImportantPapers(paperList) {
   console.log("[Importance] Top 5:", topTitles);
 }
 
-function buildLocalPapers(fileNames) {
-  return fileNames.map((fileName) => {
-    const sidecar = _manifestMetadata[fileName] || {};
-    const year    = sidecar.year    || inferYear(fileName);
-    const title   = sidecar.title   || toDisplayTitle(fileName);
-    const hasSidecarGroups = Array.isArray(sidecar.groups) && sidecar.groups.length > 0;
-    const groups  = hasSidecarGroups
-                    ? sidecar.groups
-                    : inferGroups(fileName, year);
-    const relativePath = `${localPaperFolder}/${fileName}`;
+// Fetches the paper library from the Flask API and rebuilds the UI.
+let _lastPapersJSON = "";
 
-    return {
-      id: `local-${slugify(fileName)}`,
-      title,
-      authors:    sidecar.authors    || "Repository Paper",
-      year,
-      groups,
-      _hasSidecarGroups: hasSidecarGroups,
-      preview:    sidecar.preview    || "Local repository entry loaded from your WebProject1 paper folder.",
-      summary:    sidecar.summary    || "This entry is pulled from the local paper repository. Add a custom hand-written summary here as you review the paper in detail.",
-      datacenter: sidecar.datacenter || "Potentially relevant to accelerator efficiency, cluster architecture, inference economics, or system-level AI deployment tradeoffs.",
-      metrics:    sidecar.metrics    || "Key result signal not yet extracted. Review and annotate this item for production use.",
-      link:       sidecar.link       || encodeURI(relativePath),
-      infographic: sidecar.infographic || "",
-      isLocal: true
-    };
+async function fetchPapersFromApi() {
+  try {
+    const res = await fetch("/api/papers");
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Skip re-render if data hasn't changed
+    const json = JSON.stringify(data);
+    if (json === _lastPapersJSON) return;
+    _lastPapersJSON = json;
+
+    dynamicLocalPapers = data.map((p) => ({
+      ...p,
+      isLocal: true,
+      _hasSidecarGroups: !!p._hasSidecarGroups,
+      groups: Array.isArray(p.groups) ? p.groups : ["latest"],
+    }));
+    rebuildPapers();
+    renderFeed();
+    renderDetail();
+    renderFullSections();
+  } catch (_) {
+    // Server not ready — retry on next poll
+  }
+}
+
+// Upload a new paper via the API.
+async function uploadPaper(file, metadata) {
+  const form = new FormData();
+  form.append("pdf", file);
+  for (const [k, v] of Object.entries(metadata)) {
+    if (v) form.append(k, v);
+  }
+  const res = await fetch("/api/papers", { method: "POST", body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Upload failed");
+  }
+  await fetchPapersFromApi();
+  return res.json();
+}
+
+// Update metadata for an existing paper.
+async function updatePaperMetadata(paperId, fields) {
+  const res = await fetch(`/api/papers/${encodeURIComponent(paperId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
   });
+  if (!res.ok) throw new Error("Update failed");
+  await fetchPapersFromApi();
+}
+
+// Delete a paper from the library.
+async function deletePaperById(paperId) {
+  const res = await fetch(`/api/papers/${encodeURIComponent(paperId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Delete failed");
+  await fetchPapersFromApi();
 }
 
 
@@ -189,33 +216,6 @@ function rebuildPapers() {
   if (!inLocal && !inDiscovery && papers.length > 0) {
     selectedPaperId = papers[0].id;
   }
-}
-
-// Reads window.localPapersManifest (and window.localPapersMetadata) set by papers-manifest.js.
-// Works from both file:// and http://, metadata is available synchronously at page load.
-// Adds any new PDFs not yet in the feed and re-renders only when something changed.
-function refreshLocalPapersFromManifest() {
-  const files = Array.isArray(window.localPapersManifest) ? window.localPapersManifest : [];
-  if (files.length === 0) return;
-
-  // Populate _manifestMetadata from the JS manifest so metadata is available immediately
-  // on both file:// and http://, without waiting for the async pollManifestJson() fetch.
-  if (window.localPapersMetadata && typeof window.localPapersMetadata === "object") {
-    _manifestMetadata = { ..._manifestMetadata, ...window.localPapersMetadata };
-  }
-
-  const existingIds = new Set(dynamicLocalPapers.map((p) => p.id));
-  const newFiles = files.filter((f) => !existingIds.has(`local-${slugify(f)}`));
-
-  if (newFiles.length === 0) return; // nothing new
-
-  localPaperFiles = files;
-  dynamicLocalPapers = buildLocalPapers(files);
-  rebuildPapers();
-  renderFeed();
-  renderDetail();
-  renderFullSections();
-  console.log(`Local papers refreshed — ${dynamicLocalPapers.length} total (${newFiles.length} new)`);
 }
 
 function cleanAbstract(rawAbstract) {
@@ -280,7 +280,7 @@ function toDiscoveryPaper(entry, index) {
   };
 }
 
-// Reconstruct plain-text abstract from OpenAlex inverted-index format
+// Reconstruct plain-text abstract from OpenAlex inverted-index format (kept for metadata download)
 function reconstructAbstract(invertedIndex) {
   if (!invertedIndex || typeof invertedIndex !== "object") return "";
   const words = [];
@@ -292,218 +292,24 @@ function reconstructAbstract(invertedIndex) {
   return words.filter(Boolean).join(" ");
 }
 
-// Map an OpenAlex work object to our internal paper model
-function toDiscoveryPaperFromOpenAlex(entry, index) {
-  const title = (entry.title || "Untitled discovery paper").trim();
-  const year = entry.publication_date
-    ? parseInt(entry.publication_date.slice(0, 4), 10)
-    : new Date().getFullYear();
-  const authors =
-    Array.isArray(entry.authorships) && entry.authorships.length > 0
-      ? entry.authorships
-          .slice(0, 3)
-          .map((a) => a.author?.display_name)
-          .filter(Boolean)
-          .join(", ")
-      : "Web Discovery";
-  const link =
-    entry.open_access?.oa_url ||
-    (entry.doi ? entry.doi : "https://openalex.org");
-  const abstract = cleanAbstract(reconstructAbstract(entry.abstract_inverted_index));
-  const summaryBase =
-    abstract.length > 60
-      ? abstract.slice(0, 320)
-      : "This result was discovered from the live search and appears relevant to LLM architecture, MoE, or dataflow optimization.";
-
-  return {
-    id: `web-live-${slugify(`${title}-${year}-${index}`)}`,
-    title,
-    authors,
-    year,
-    groups: ["latest", "read"],
-    preview: summaryBase.slice(0, 148),
-    summary: `${summaryBase}${summaryBase.endsWith(".") ? "" : "."}`,
-    datacenter: inferDatacenterImpact(`${title} ${summaryBase}`),
-    metrics: inferKeyResult(summaryBase, year),
-    link,
-    isDiscovery: true,
-    _pubDate: entry.publication_date || `${year}-01-01`
-  };
-}
-
-// Map an arXiv Atom <entry> element to our internal paper model
-function toDiscoveryPaperFromArxiv(entry, index) {
-  const getEl = (tag) => entry.getElementsByTagName(tag)[0]?.textContent?.trim() || "";
-  const title = getEl("title").replace(/\s+/g, " ");
-  const abstract = getEl("summary").replace(/\s+/g, " ");
-  const published = getEl("published");
-  const year = published ? parseInt(published.slice(0, 4), 10) : new Date().getFullYear();
-  const link = getEl("id") || "https://arxiv.org";
-  const authorEls = [...entry.getElementsByTagName("name")];
-  const authors = authorEls.slice(0, 3).map((n) => n.textContent.trim()).join(", ") || "arXiv Discovery";
-
-  const summaryBase = abstract.length > 60
-    ? cleanAbstract(abstract).slice(0, 320)
-    : "This result was discovered from arXiv and appears relevant to LLM architecture, MoE, or dataflow optimization.";
-
-  return {
-    id: `web-live-${slugify(`${title}-${year}-arxiv-${index}`)}`,
-    title,
-    authors,
-    year,
-    groups: ["latest", "read"],
-    preview: summaryBase.slice(0, 148),
-    summary: `${summaryBase}${summaryBase.endsWith(".") ? "" : "."}`,
-    datacenter: inferDatacenterImpact(`${title} ${summaryBase}`),
-    metrics: inferKeyResult(summaryBase, year),
-    link,
-    isDiscovery: true,
-    _pubDate: published || `${year}-01-01`
-  };
-}
-
-// Map a Semantic Scholar paper object to our internal paper model
-function toDiscoveryPaperFromSemanticScholar(entry, index) {
-  const title = (entry.title || "Untitled discovery paper").trim();
-  const pubDate = entry.publicationDate || "";
-  const year = pubDate
-    ? parseInt(pubDate.slice(0, 4), 10)
-    : (entry.year || new Date().getFullYear());
-  const authors =
-    Array.isArray(entry.authors) && entry.authors.length > 0
-      ? entry.authors.slice(0, 3).map((a) => a.name).filter(Boolean).join(", ")
-      : "Semantic Scholar";
-  const link =
-    entry.url ||
-    (entry.externalIds?.ArXiv
-      ? `https://arxiv.org/abs/${entry.externalIds.ArXiv}`
-      : "https://www.semanticscholar.org/");
-  const abstract = cleanAbstract(entry.abstract || "");
-  const summaryBase =
-    abstract.length > 60
-      ? abstract.slice(0, 320)
-      : "This result was discovered from Semantic Scholar and appears relevant to LLM architecture, MoE, or dataflow optimization.";
-
-  return {
-    id: `web-live-${slugify(`${title}-${year}-ss-${index}`)}`,
-    title,
-    authors,
-    year,
-    groups: ["latest", "read"],
-    preview: summaryBase.slice(0, 148),
-    summary: `${summaryBase}${summaryBase.endsWith(".") ? "" : "."}`,
-    datacenter: inferDatacenterImpact(`${title} ${summaryBase}`),
-    metrics: inferKeyResult(summaryBase, year),
-    link,
-    isDiscovery: true,
-    _pubDate: pubDate || `${year}-01-01`
-  };
-}
-
-// Rotating topic queries — advances one slot per search click for variety
-const _discoveryQueryPool = [
-  "LLM transformer architecture mixture of experts attention mechanism",
-  "large language model inference serving GPU efficiency",
-  "mixture of experts sparse neural network scaling",
-  "flash attention KV cache transformer memory optimization",
-  "LLM quantization compression fine-tuning efficiency",
-  "distributed training data parallelism model architecture",
-  "AI inference throughput latency serving datacenter optimization",
-  "foundation model pretraining scaling laws emergent capabilities",
-  // Extended topic queries
-  "LLM token generation latency speculative decoding autoregressive throughput",
-  "LLM inference cost efficiency token economics serving infrastructure optimization",
-  "agentic AI autonomous LLM agents planning tool use multi-agent systems",
-  "dataflow architecture AI accelerator systolic array neural network hardware",
-  "ARM processor AI inference edge neural network acceleration chip design",
-  "AMD GPU AI accelerator ROCm CDNA MI300 machine learning architecture",
-  "emerging disruptive AI architecture novel neural network paradigm breakthrough",
-  "Nvidia next generation GPU architecture AI HPC accelerator interconnect",
-];
-let _discoveryQueryIndex = 0;
-
-// OpenAlex concept IDs for concept-based filtering (rotated alongside keyword queries)
-const _conceptPool = [
-  "https://openalex.org/C154945302", // Machine Learning
-  "https://openalex.org/C108583219", // Computer Hardware
-  "https://openalex.org/C41008148",  // Artificial Intelligence
-  "https://openalex.org/C38652104",  // Computer Network
-  "https://openalex.org/C86803240",  // Computer Architecture
-];
-
-// Returns an ISO date string for N months in the past (e.g. "2024-09-23")
-function _monthsAgoDate(months) {
-  const d = new Date();
-  d.setMonth(d.getMonth() - months);
-  return d.toISOString().slice(0, 10);
-}
-
-// Uses OpenAlex (primary) + arXiv (secondary) — both support CORS from any origin including file://
+// Uses the Flask backend discovery proxy — avoids CORS issues
 async function fetchDiscoveredPapers() {
-  const queryText = _discoveryQueryPool[_discoveryQueryIndex % _discoveryQueryPool.length];
-  _discoveryQueryIndex++;
-
   const rangeEl = document.querySelector('input[name="discoveryRange"]:checked');
   const months = rangeEl ? parseInt(rangeEl.value, 10) : 1;
-  const since = _monthsAgoDate(months);
-  const openAlexUrl = `https://api.openalex.org/works?search=${encodeURIComponent(
-    queryText
-  )}&sort=publication_date:desc&filter=publication_date:>${since}&per-page=15`;
 
-  // OpenAlex concept-based fetch (rotates through _conceptPool)
-  const conceptId = _conceptPool[_discoveryQueryIndex % _conceptPool.length];
-  const openAlexConceptUrl = `https://api.openalex.org/works?filter=concepts.id:${encodeURIComponent(
-    conceptId
-  )},publication_date:>${since}&sort=publication_date:desc&per-page=8`;
+  const res = await fetch(`/api/discover?months=${months}`);
+  if (!res.ok) throw new Error("Discovery request failed");
 
-  const arxivUrl = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(
-    "cat:cs.LG AND (transformer OR llm OR \"mixture of experts\" OR attention OR architecture)"
-  )}&sortBy=submittedDate&sortOrder=descending&max_results=8`;
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
 
-  // Semantic Scholar fetch
-  const sinceYear = new Date(since).getFullYear();
-  const ssUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
-    queryText
-  )}&year=${sinceYear}-&limit=8&fields=title,authors,abstract,year,externalIds,url,publicationDate`;
+  const results = data.results || [];
+  if (results.length === 0) throw new Error("No results from discovery sources");
 
-  const [openAlexResult, openAlexConceptResult, arxivResult, ssResult] = await Promise.allSettled([
-    fetch(openAlexUrl, { headers: { Accept: "application/json" } }),
-    fetch(openAlexConceptUrl, { headers: { Accept: "application/json" } }),
-    fetch(arxivUrl),
-    fetch(ssUrl, { headers: { Accept: "application/json" } }),
-  ]);
-
-  const results = [];
-
-  if (openAlexResult.status === "fulfilled" && openAlexResult.value.ok) {
-    const payload = await openAlexResult.value.json();
-    const rows = Array.isArray(payload.results) ? payload.results : [];
-    results.push(...rows.map((entry, i) => toDiscoveryPaperFromOpenAlex(entry, i)));
+  // Display the query that was used (for transparency)
+  if (discoveryQueryEl && data.query) {
+    discoveryQueryEl.textContent = `Query: "${data.query}"`;
   }
-
-  if (openAlexConceptResult.status === "fulfilled" && openAlexConceptResult.value.ok) {
-    const payload = await openAlexConceptResult.value.json();
-    const rows = Array.isArray(payload.results) ? payload.results : [];
-    results.push(...rows.map((entry, i) => toDiscoveryPaperFromOpenAlex(entry, results.length + i)));
-  }
-
-  if (arxivResult.status === "fulfilled" && arxivResult.value.ok) {
-    const xml = await arxivResult.value.text();
-    const doc = new DOMParser().parseFromString(xml, "application/xml");
-    const entries = [...doc.getElementsByTagName("entry")];
-    results.push(...entries.map((entry, i) => toDiscoveryPaperFromArxiv(entry, results.length + i)));
-  }
-
-  if (ssResult.status === "fulfilled" && ssResult.value.ok) {
-    const payload = await ssResult.value.json();
-    const rows = Array.isArray(payload.data) ? payload.data : [];
-    results.push(...rows.map((entry, i) => toDiscoveryPaperFromSemanticScholar(entry, results.length + i)));
-  }
-
-  if (results.length === 0) throw new Error("No results from OpenAlex, arXiv, or Semantic Scholar");
-
-  // Global sort by publication date — newest first, interleaved across all sources
-  results.sort((a, b) => new Date(b._pubDate) - new Date(a._pubDate));
 
   return results;
 }
@@ -540,12 +346,18 @@ async function handleFindNewPapers() {
       return;
     }
 
-    const { papers: deduped, skipped } = dedupeDiscoveredPapers(fetched);
-    discoveredWebPapers = deduped;
-    // Discovery panel only — main feed is local library only, no re-render needed.
+    // Dedupe within existing discovery results
+    const seenTitles = new Set();
+    const merged = [...fetched, ...discoveredWebPapers].filter((item) => {
+      const key = item.title.toLowerCase().trim();
+      if (seenTitles.has(key)) return false;
+      seenTitles.add(key);
+      return true;
+    });
+
+    discoveredWebPapers = merged.slice(0, 30);
     renderDiscoveryFeed();
-    const skipMsg = skipped > 0 ? ` (${skipped} already in your library)` : "";
-    discoveryStatusEl.textContent = `Updated — ${fetched.length} results${skipMsg}.`;
+    discoveryStatusEl.textContent = `Updated — ${fetched.length} results.`;
   } catch (error) {
     discoveryStatusEl.textContent = `Search failed: ${error.message}`;
   } finally {
@@ -837,10 +649,66 @@ function renderDetail() {
     <div class="detail-link-row">
       ${jumpLink}
       <a class="ghost-link" href="${paper.link}" target="_blank" rel="noopener noreferrer">${linkLabel(paper)}</a>
+      ${paper.isLocal ? `<button class="ghost-link edit-paper-btn" type="button" data-id="${paper.id}">Edit Metadata</button>
+      <button class="ghost-link delete-paper-btn" type="button" data-id="${paper.id}">Delete Paper</button>` : ""}
     </div>
   `;
+
+  // Bind edit button
+  const editBtn = detailEl.querySelector(".edit-paper-btn");
+  if (editBtn) {
+    editBtn.addEventListener("click", () => showEditForm(paper));
+  }
+  // Bind delete button
+  const deleteBtn = detailEl.querySelector(".delete-paper-btn");
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm(`Delete "${paper.title}"? This removes the PDF and metadata permanently.`)) return;
+      try {
+        await deletePaperById(paper.id);
+      } catch (e) {
+        alert("Delete failed: " + e.message);
+      }
+    });
+  }
+
   scheduleWikiSummaryImages(detailEl);
   schedulePdfRenders(detailEl);
+}
+
+// ── Inline edit form ───────────────────────────────────────────────────────
+function showEditForm(paper) {
+  const fields = ["title", "authors", "year", "preview", "summary", "datacenter", "metrics"];
+  detailEl.innerHTML = `
+    <h2>Edit: ${paper.title}</h2>
+    <form id="editPaperForm" class="edit-paper-form">
+      ${fields.map((f) => `
+        <label class="edit-label">${f.charAt(0).toUpperCase() + f.slice(1)}
+          ${f === "summary" || f === "datacenter" || f === "preview"
+            ? `<textarea name="${f}" class="edit-input edit-textarea">${paper[f] || ""}</textarea>`
+            : `<input name="${f}" class="edit-input" value="${(paper[f] || "").toString().replace(/"/g, "&quot;")}" />`}
+        </label>`).join("")}
+      <div class="detail-link-row">
+        <button type="submit" class="solid-link">Save</button>
+        <button type="button" class="ghost-link" id="cancelEdit">Cancel</button>
+      </div>
+    </form>
+  `;
+
+  document.getElementById("cancelEdit").addEventListener("click", renderDetail);
+  document.getElementById("editPaperForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const updates = {};
+    for (const [k, v] of formData.entries()) {
+      updates[k] = k === "year" ? parseInt(v, 10) || paper.year : v;
+    }
+    try {
+      await updatePaperMetadata(paper.id, updates);
+    } catch (err) {
+      alert("Save failed: " + err.message);
+    }
+  });
 }
 
 // Ordered term→article pairs for auto-detection in local / discovered papers.
@@ -1139,51 +1007,50 @@ function init() {
   updateHeaderOffset();
   window.addEventListener('resize', updateHeaderOffset);
 
-  rebuildPapers();
-
   if (findNewPapersBtn) {
     findNewPapersBtn.addEventListener("click", handleFindNewPapers);
+  }
+
+  // Bind upload form
+  const uploadForm = document.getElementById("uploadPaperForm");
+  if (uploadForm) {
+    uploadForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fileInput = uploadForm.querySelector('input[type="file"]');
+      const file = fileInput.files[0];
+      if (!file) { alert("Select a PDF file first."); return; }
+      const metadata = {};
+      for (const input of uploadForm.querySelectorAll("input[name], textarea[name]")) {
+        if (input.type !== "file" && input.value.trim()) {
+          metadata[input.name] = input.value.trim();
+        }
+      }
+      const statusEl = document.getElementById("uploadStatus");
+      try {
+        if (statusEl) statusEl.textContent = "Uploading...";
+        await uploadPaper(file, metadata);
+        uploadForm.reset();
+        if (statusEl) statusEl.textContent = "Uploaded successfully!";
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "Upload failed: " + err.message;
+      }
+    });
   }
 
   renderDiscoveryFeed();
   bindFilters();
   bindSummarySearch();
-  renderFeed();
-  renderDetail();
-  renderFullSections();
 
-  // Load local papers from papers-manifest.js (populated by watch-papers.py, works from file://)
-  refreshLocalPapersFromManifest();
+  // Fetch papers from Flask API
+  fetchPapersFromApi();
 
-  // When served over HTTP, poll papers-manifest.json every 8 s for new PDFs
-  // without needing a full page reload.
-  if (location.hostname) {
-    pollManifestJson(); // immediate call to get sidecar metadata on first load
-    setInterval(pollManifestJson, 8000);
-  }
-}
-
-// Fetches papers-manifest.json and rebuilds the local paper feed from the latest manifest + sidecar metadata.
-let _lastManifestUpdated = "";
-async function pollManifestJson() {
-  try {
-    const res = await fetch(`papers-manifest.json?_=${Date.now()}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!Array.isArray(data.files) || data.updated === _lastManifestUpdated) return;
-    _lastManifestUpdated = data.updated;
-    if (data.metadata && typeof data.metadata === "object") {
-      _manifestMetadata = data.metadata;
-    }
-    localPaperFiles = data.files;
-    dynamicLocalPapers = buildLocalPapers(data.files);
-    rebuildPapers();
-    renderFeed();
-    renderDetail();
-    renderFullSections();
-  } catch (_) {
-    // Network error or server not running — silently ignore
-  }
+  // Listen for server-sent events instead of polling
+  const sse = new EventSource("/api/changes");
+  sse.onmessage = () => fetchPapersFromApi();
+  sse.onerror = () => {
+    // SSE disconnected — fall back to a single retry after 10s
+    setTimeout(() => fetchPapersFromApi(), 10000);
+  };
 }
 
 init();

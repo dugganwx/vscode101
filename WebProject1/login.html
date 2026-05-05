@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login — AI Architecture Papers Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Spectral:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a" aria-hidden="true"></div>
+
+    <div class="auth-container">
+      <div class="auth-card">
+        <p class="eyebrow">SYSTEMS ARCHITECTURE AND INNOVATION</p>
+        <h1 class="auth-title">Paper Desk Login</h1>
+        <p class="auth-subtitle">Sign in to access the AI Architecture Papers Portal.</p>
+
+        <div id="authError" class="auth-error" role="alert" style="display:none"></div>
+
+        <form method="POST" action="/login" class="auth-form">
+          <label class="auth-label" for="username">Username</label>
+          <input class="auth-input" type="text" id="username" name="username" required autofocus autocomplete="username" />
+
+          <label class="auth-label" for="password">Password</label>
+          <input class="auth-input" type="password" id="password" name="password" required autocomplete="current-password" />
+
+          <button class="auth-btn" type="submit">Sign In</button>
+        </form>
+
+        <p class="auth-footer">
+          Don't have an account? <a href="/register">Create one</a>
+        </p>
+        <p class="auth-hint" id="firstUserHint" style="display:none">
+          No accounts exist yet. The first login will create your account automatically.
+        </p>
+      </div>
+    </div>
+
+    <script>
+      // Show error from query param
+      const params = new URLSearchParams(window.location.search);
+      const err = params.get('error');
+      if (err) {
+        const el = document.getElementById('authError');
+        el.textContent = err;
+        el.style.display = 'block';
+      }
+    </script>
+  </body>
+</html>
