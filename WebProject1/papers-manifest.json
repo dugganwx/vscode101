@@ -34,7 +34,7 @@
     "Verified Sparse Attention.pdf",
     "amd-instinct-mi300-cdna3-instruction-set-architecture.pdf"
   ],
-  "updated": "2026-05-05T15:54:42.751788",
+  "updated": "2026-05-07T11:52:42.606443",
   "metadata": {
     "1.Krste .pdf": {
       "title": "Agile Hardware Design \u2014 Krste Asanovi\u0107",
@@ -88,6 +88,7 @@
       "link": ""
     },
     "A Survey of Low-bit Large Language Models Basics, Systems, and Algorithms.pdf": {
+      "infographic": "AI papers for WebProject1/A Survey of Low-bit Large Language Models Basics, Systems, and Algorithms.jpg",
       "title": "A Survey of Low-bit Large Language Models: Basics, Systems, and Algorithms",
       "authors": "Multiple Authors",
       "year": 2024,
@@ -148,6 +149,7 @@
       "link": ""
     },
     "Agentic AI Optimization-AAIO.pdf": {
+      "infographic": "AI papers for WebProject1/Agentic AI Optimization-AAIO.jpg",
       "title": "Agentic AI Optimization (AAIO)",
       "authors": "Multiple Authors",
       "year": 2025,
