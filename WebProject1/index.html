@@ -41,25 +41,35 @@
 
     <main class="layout">
       <aside class="feed-panel" aria-label="Scrollable paper news feed">
-        <details class="discovery-panel" open aria-label="Web discovery results">
+        <details class="discovery-panel" open aria-label="AI-powered paper discovery">
           <summary class="feed-title-row">
-            <h2>Web Discovery</h2>
+            <h2>AI Paper Discovery</h2>
             <span id="discoveryCount" class="feed-count">Seeded Results</span>
           </summary>
           <p id="discoveryQuery" class="discovery-copy"></p>
           <div class="discovery-actions">
-            <div class="find-btn-wrap">
-              <button id="findNewPapersBtn" class="filter-btn discovery-btn" type="button">Find New Papers</button>
-              <span class="find-btn-tip" role="tooltip">Searches OpenAlex + arXiv for recent AI architecture papers. Results appear in Web Discovery — not added to your library.</span>
+            <div class="discovery-search-row">
+              <input id="discoverySearchInput" class="discovery-search-input" type="search"
+                     placeholder="Search for AI papers&hellip; e.g. &ldquo;MoE routing efficiency&rdquo;"
+                     aria-label="AI paper search query" autocomplete="off" />
+              <div class="find-btn-wrap">
+                <button id="findNewPapersBtn" class="filter-btn discovery-btn" type="button">Search</button>
+                <span class="find-btn-tip" role="tooltip">AI-powered paper discovery: uses Azure OpenAI to recommend papers, validates with Semantic Scholar, and supplements with OpenAlex. Results appear here — not added to your library.</span>
+              </div>
             </div>
-            <fieldset class="discovery-range" aria-label="Search time range">
-              <label><input type="radio" name="discoveryRange" value="1" checked /> 1 mo</label>
-              <label><input type="radio" name="discoveryRange" value="2" /> 2 mo</label>
-              <label><input type="radio" name="discoveryRange" value="3" /> 3 mo</label>
-            </fieldset>
             <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready</span>
           </div>
-          <div id="discoveryFeed" class="discovery-feed" aria-label="Web search result cards"></div>
+          <div class="discovery-topics" aria-label="Quick topic shortcuts">
+            <button class="topic-pill" type="button" data-query="mixture of experts MoE sparse routing">MoE &amp; Sparse Models</button>
+            <button class="topic-pill" type="button" data-query="LLM inference optimization serving throughput latency">Inference Optimization</button>
+            <button class="topic-pill" type="button" data-query="GPU architecture AI accelerator CUDA tensor cores">GPU Architecture</button>
+            <button class="topic-pill" type="button" data-query="large language model training distributed pretraining scaling laws">LLM Training</button>
+            <button class="topic-pill" type="button" data-query="agentic AI autonomous LLM agents planning tool use">Agentic AI</button>
+            <button class="topic-pill" type="button" data-query="quantization compression pruning efficient LLM deployment">Quantization &amp; Compression</button>
+            <button class="topic-pill" type="button" data-query="KV cache memory optimization flash attention transformer">Memory &amp; KV Cache</button>
+            <button class="topic-pill" type="button" data-query="datacenter interconnect NVLink networking optical AI cluster">Interconnects &amp; Networking</button>
+          </div>
+          <div id="discoveryFeed" class="discovery-feed" aria-label="AI-powered search result cards"></div>
         </details>
 
         <div class="paper-feed-wrap">

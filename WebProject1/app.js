@@ -292,12 +292,15 @@ function reconstructAbstract(invertedIndex) {
   return words.filter(Boolean).join(" ");
 }
 
-// Uses the Flask backend discovery proxy — avoids CORS issues
+// Uses the Flask backend AI discovery pipeline
 async function fetchDiscoveredPapers() {
-  const rangeEl = document.querySelector('input[name="discoveryRange"]:checked');
-  const months = rangeEl ? parseInt(rangeEl.value, 10) : 1;
+  const searchInput = document.getElementById("discoverySearchInput");
+  const query = searchInput ? searchInput.value.trim() : "";
 
-  const res = await fetch(`/api/discover?months=${months}`);
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+
+  const res = await fetch(`/api/discover?${params.toString()}`);
   if (!res.ok) throw new Error("Discovery request failed");
 
   const data = await res.json();
@@ -308,7 +311,8 @@ async function fetchDiscoveredPapers() {
 
   // Display the query that was used (for transparency)
   if (discoveryQueryEl && data.query) {
-    discoveryQueryEl.textContent = `Query: "${data.query}"`;
+    const aiLabel = data.ai_available ? "AI + OpenAlex" : "OpenAlex";
+    discoveryQueryEl.textContent = `Query (${aiLabel}): "${data.query}"`;
   }
 
   return results;
@@ -336,7 +340,7 @@ async function handleFindNewPapers() {
   if (!findNewPapersBtn) return;
 
   findNewPapersBtn.disabled = true;
-  discoveryStatusEl.textContent = "Searching...";
+  discoveryStatusEl.textContent = "Searching with AI...";
 
   try {
     const fetched = await fetchDiscoveredPapers();
@@ -499,11 +503,14 @@ function renderDiscoveryFeed() {
     card.setAttribute("aria-label", paper.title);
 
     const [dkw1] = extractPaperKeywords(paper);
+    const sourceTag = paper.source === "ai-recommended"
+      ? '<span class="tag tag-ai">AI Recommended</span>'
+      : '<span class="tag tag-openalex">OpenAlex</span>';
     card.innerHTML = `
       <img class="card-image" src="${kwPlaceholder(dkw1)}" alt="${dkw1}" data-wiki-article="${dkw1}" data-paper-id="${paper.id}" />
       <div class="card-body">
         <div class="card-tags">
-          <span class="tag latest">Discovery</span>
+          ${sourceTag}
         </div>
         <h3 class="card-title">${paper.title}</h3>
         <p class="card-preview">${paper.preview}</p>
@@ -599,7 +606,9 @@ function renderDetail() {
 
   const [dkw1, dkw2, dkw3] = extractPaperKeywords(paper);
   const jumpLink = paper.isDiscovery
-    ? `<span class="discovery-badge-detail">Web Discovery</span>`
+    ? (paper.source === "ai-recommended"
+      ? `<span class="discovery-badge-detail discovery-badge-ai">AI Recommended</span>`
+      : `<span class="discovery-badge-detail">OpenAlex</span>`)
     : `<a class="solid-link" href="#paper-${paper.id}">Jump to Full Section</a>`;
 
   const detailImageBlock = paper.infographic
@@ -1010,6 +1019,31 @@ function init() {
   if (findNewPapersBtn) {
     findNewPapersBtn.addEventListener("click", handleFindNewPapers);
   }
+
+  // Enter key triggers search in discovery input
+  const discoverySearchInput = document.getElementById("discoverySearchInput");
+  if (discoverySearchInput) {
+    discoverySearchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleFindNewPapers();
+      }
+    });
+  }
+
+  // Topic pill quick-search buttons
+  document.querySelectorAll(".topic-pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const input = document.getElementById("discoverySearchInput");
+      if (input) {
+        input.value = pill.dataset.query;
+      }
+      // Highlight active pill
+      document.querySelectorAll(".topic-pill").forEach((p) => p.classList.remove("topic-pill--active"));
+      pill.classList.add("topic-pill--active");
+      handleFindNewPapers();
+    });
+  });
 
   // Bind upload form
   const uploadForm = document.getElementById("uploadPaperForm");

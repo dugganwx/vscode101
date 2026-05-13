@@ -67,6 +67,7 @@ from flask import (
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import requests as http_requests
+from openai import AzureOpenAI
 
 from models import (
     init_db, get_all_papers, get_paper, upsert_paper,
@@ -410,7 +411,7 @@ def api_delete_paper(paper_id):
     return "", 204
 
 
-# ── REST API: Discovery (OpenAlex only) ─────────────────────────────────────
+# ── REST API: AI-Powered Discovery ──────────────────────────────────────────
 
 PROXY_URL = os.environ.get("HTTP_PROXY", "http://proxy-dmz.intel.com:912")
 _proxies = {"http": PROXY_URL, "https": PROXY_URL}
@@ -431,6 +432,156 @@ _DISCOVERY_QUERIES = [
 ]
 _discovery_query_index = 0
 
+# ── Azure OpenAI config loader ──────────────────────────────────────────────
+
+_AZURE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "azure_openai_config.txt")
+
+def _load_azure_config():
+    """Read azure_openai_config.txt and return a dict with endpoint, api_key, deployment, api_version."""
+    if not os.path.exists(_AZURE_CONFIG_FILE):
+        return None
+    cfg = {}
+    with open(_AZURE_CONFIG_FILE, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            cfg[key.strip()] = value.strip()
+    if not cfg.get("api_key") or cfg["api_key"] == "REPLACE_WITH_YOUR_KEY_VALUE_HERE":
+        return None
+    return cfg
+
+_azure_cfg = _load_azure_config()
+_azure_client = None
+
+def _get_azure_client():
+    """Lazy-init the AzureOpenAI client."""
+    global _azure_client, _azure_cfg
+    if _azure_client is not None:
+        return _azure_client
+    if _azure_cfg is None:
+        _azure_cfg = _load_azure_config()
+    if _azure_cfg is None:
+        return None
+    _azure_client = AzureOpenAI(
+        azure_endpoint=_azure_cfg["endpoint"],
+        api_key=_azure_cfg["api_key"],
+        api_version=_azure_cfg.get("api_version", "2025-01-01-preview"),
+    )
+    return _azure_client
+
+# ── LLM paper recommendation ───────────────────────────────────────────────
+
+_LLM_SYSTEM_PROMPT = """You are an expert AI research librarian specializing in datacenter architecture, AI/ML systems, GPU/accelerator design, large language model infrastructure, and high-performance computing.
+
+Your task: Given a research topic, recommend exactly 10 highly relevant, real academic papers or technical reports. Prioritize:
+1. Seminal papers that system architects and datacenter engineers must know
+2. Recent breakthrough papers (2023-2026) with measurable impact
+3. Papers from top venues (NeurIPS, ICML, ISCA, MICRO, ASPLOS, MLSys, arXiv)
+4. Papers with concrete datacenter/infrastructure implications
+
+Return a JSON object with a single key "papers" containing an array of exactly 10 objects. Each object must have:
+- "title": exact paper title (be precise — this will be used for lookup)
+- "authors": comma-separated author names (first 3-4 authors)
+- "year": publication year (integer)
+- "summary": 2-3 sentence technical summary focusing on the key contribution
+- "datacenter_relevance": 1 sentence on why this matters for datacenter architects
+- "key_metrics": specific quantitative results or impact metrics from the paper
+
+Only recommend papers you are highly confident actually exist. Do not fabricate titles."""
+
+def _llm_recommend_papers(query):
+    """Ask Azure OpenAI for paper recommendations. Returns list of dicts or empty list."""
+    client = _get_azure_client()
+    if client is None:
+        return []
+    deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
+    try:
+        completion = client.chat.completions.create(
+            model=deployment,
+            messages=[
+                {"role": "system", "content": _LLM_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Recommend 10 papers on: {query}"},
+            ],
+            max_tokens=4096,
+            temperature=0.7,
+            top_p=0.95,
+            response_format={"type": "json_object"},
+        )
+        raw = completion.choices[0].message.content
+        data = json.loads(raw)
+        papers = data.get("papers", [])
+        if isinstance(papers, list):
+            return papers[:10]
+    except Exception as e:
+        print(f"  [AI Discovery] LLM error: {e}")
+    return []
+
+# ── Semantic Scholar validation ─────────────────────────────────────────────
+
+def _validate_with_semantic_scholar(llm_papers):
+    """Enrich LLM-recommended papers with real links from Semantic Scholar."""
+    enriched = []
+    for paper in llm_papers:
+        title = paper.get("title", "")
+        if not title:
+            enriched.append(paper)
+            continue
+        try:
+            r = http_requests.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params={
+                    "query": title,
+                    "limit": 3,
+                    "fields": "title,authors,year,abstract,externalIds,openAccessPdf,url,citationCount",
+                },
+                timeout=10,
+                proxies=_proxies,
+            )
+            if r.ok:
+                results = r.json().get("data", [])
+                # Find best match by title similarity
+                best = None
+                title_lower = title.lower().strip()
+                for result in results:
+                    result_title = (result.get("title") or "").lower().strip()
+                    if result_title == title_lower or title_lower in result_title or result_title in title_lower:
+                        best = result
+                        break
+                if best is None and results:
+                    best = results[0]  # fall back to top result
+                if best:
+                    # Enrich with real data
+                    oa_pdf = best.get("openAccessPdf") or {}
+                    ext_ids = best.get("externalIds") or {}
+                    arxiv_id = ext_ids.get("ArXiv")
+                    doi = ext_ids.get("DOI")
+                    link = (oa_pdf.get("url")
+                            or (f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None)
+                            or (f"https://doi.org/{doi}" if doi else None)
+                            or best.get("url")
+                            or "")
+                    paper["link"] = link
+                    paper["citation_count"] = best.get("citationCount", 0)
+                    if best.get("abstract"):
+                        paper["abstract"] = best["abstract"][:400]
+                    if best.get("year"):
+                        paper["year"] = best["year"]
+                    # Use Semantic Scholar's canonical title if very close
+                    if best.get("title"):
+                        paper["title"] = best["title"]
+                    if best.get("authors"):
+                        paper["authors"] = ", ".join(
+                            a.get("name", "") for a in best["authors"][:4]
+                        )
+        except Exception as e:
+            print(f"  [AI Discovery] Semantic Scholar lookup failed for '{title[:40]}': {e}")
+        enriched.append(paper)
+        time.sleep(0.15)  # rate-limit: ~6.6 req/sec (under 100/min limit)
+    return enriched
+
+# ── Discovery helpers ───────────────────────────────────────────────────────
 
 def _months_ago_date(months):
     d = datetime.datetime.now()
@@ -473,6 +624,36 @@ def _infer_key_result(text, year):
     return f"Key result signal: recent ({year}) technical contribution with architecture relevance worth deeper validation."
 
 
+def _llm_paper_to_discovery(paper, index):
+    """Convert an LLM-recommended paper dict to our standard discovery format."""
+    title = (paper.get("title") or "Untitled AI paper").strip()
+    year = int(paper.get("year", datetime.datetime.now().year))
+    authors = paper.get("authors", "AI Discovery")
+    link = paper.get("link", "")
+    summary = paper.get("summary", "")
+    abstract = paper.get("abstract", "")
+    full_text = abstract if abstract else summary
+    preview = full_text[:148] if full_text else summary[:148]
+    datacenter = paper.get("datacenter_relevance") or _infer_datacenter_impact(f"{title} {summary}")
+    metrics = paper.get("key_metrics") or _infer_key_result(summary, year)
+    citations = paper.get("citation_count")
+    if citations and isinstance(citations, int) and citations > 0:
+        metrics = f"{metrics} ({citations:,} citations)"
+
+    return {
+        "id": f"ai-rec-{slugify(f'{title}-{year}-{index}')}",
+        "title": title, "authors": authors, "year": year,
+        "groups": ["latest", "read"],
+        "preview": preview,
+        "summary": (full_text or summary) + ("" if (full_text or summary).endswith(".") else "."),
+        "datacenter": datacenter,
+        "metrics": metrics,
+        "link": link, "isDiscovery": True,
+        "source": "ai-recommended",
+        "_pubDate": f"{year}-01-01",
+    }
+
+
 def _openalex_to_paper(entry, index):
     title = (entry.get("title") or "Untitled discovery paper").strip()
     pub_date = entry.get("publication_date", "")
@@ -495,6 +676,7 @@ def _openalex_to_paper(entry, index):
         "datacenter": _infer_datacenter_impact(f"{title} {summary_base}"),
         "metrics": _infer_key_result(summary_base, year),
         "link": link, "isDiscovery": True,
+        "source": "openalex",
         "_pubDate": pub_date or f"{year}-01-01",
     }
 
@@ -504,21 +686,35 @@ def _openalex_to_paper(entry, index):
 def api_discover():
     global _discovery_query_index
 
-    months = request.args.get("months", 1, type=int)
-    months = max(1, min(months, 12))
-    since = _months_ago_date(months)
-    query_text = _DISCOVERY_QUERIES[_discovery_query_index % len(_DISCOVERY_QUERIES)]
-    _discovery_query_index += 1
+    # Accept free-text query or fall back to rotating predefined topic
+    query_text = request.args.get("q", "").strip()
+    if not query_text:
+        query_text = _DISCOVERY_QUERIES[_discovery_query_index % len(_DISCOVERY_QUERIES)]
+        _discovery_query_index += 1
 
     results = []
     errors = []
+    ai_available = _get_azure_client() is not None
 
-    # OpenAlex keyword search
+    # Stage 1: LLM paper recommendations (primary source)
+    if ai_available:
+        try:
+            llm_papers = _llm_recommend_papers(query_text)
+            if llm_papers:
+                # Stage 2: Enrich with Semantic Scholar real links
+                llm_papers = _validate_with_semantic_scholar(llm_papers)
+                for i, paper in enumerate(llm_papers):
+                    results.append(_llm_paper_to_discovery(paper, i))
+        except Exception as e:
+            errors.append(f"AI recommendation: {e}")
+
+    # Stage 3: OpenAlex supplemental search (recent papers)
     try:
+        since = _months_ago_date(3)
         r = http_requests.get(
             "https://api.openalex.org/works",
             params={"search": query_text, "sort": "publication_date:desc",
-                    "filter": f"publication_date:>{since}", "per-page": "20"},
+                    "filter": f"publication_date:>{since}", "per-page": "15"},
             headers={"Accept": "application/json"},
             timeout=15,
             proxies=_proxies,
@@ -538,7 +734,7 @@ def api_discover():
     local_titles = {p["title"].lower().strip() for p in get_all_papers()}
     results = [r for r in results if r["title"].lower().strip() not in local_titles]
 
-    # Dedupe within results
+    # Dedupe within results (AI-recommended first, so they win on conflicts)
     seen = set()
     deduped = []
     for r in results:
@@ -547,11 +743,18 @@ def api_discover():
             seen.add(key)
             deduped.append(r)
 
-    deduped.sort(key=lambda x: x.get("_pubDate", ""), reverse=True)
+    # Sort: AI-recommended first, then by date
+    deduped.sort(key=lambda x: (0 if x.get("source") == "ai-recommended" else 1, x.get("_pubDate", "")), reverse=False)
+    # Actually: AI first, then within each group reverse-chronological
+    ai_papers = [d for d in deduped if d.get("source") == "ai-recommended"]
+    oa_papers = [d for d in deduped if d.get("source") != "ai-recommended"]
+    oa_papers.sort(key=lambda x: x.get("_pubDate", ""), reverse=True)
+    final = ai_papers + oa_papers
 
     return jsonify({
-        "results": deduped[:30],
+        "results": final[:30],
         "query": query_text,
+        "ai_available": ai_available,
         "errors": errors,
     })
 

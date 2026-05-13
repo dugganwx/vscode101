@@ -251,9 +251,10 @@ h1 {
 
 .discovery-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin: 2px 4px 8px;
+  margin: 2px 4px 4px;
 }
 
 .discovery-btn {
@@ -292,29 +293,95 @@ h1 {
   100% { box-shadow: 0 0 0 0   rgba(198, 107, 47, 0);    }
 }
 
-.discovery-range {
-  border: none;
-  margin: 0;
-  padding: 0;
+.discovery-search-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
+  min-width: 0;
 }
 
-.discovery-range label {
-  font-size: 0.78rem;
+.discovery-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  color: var(--ink);
+  background: #ffffff;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.discovery-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(198, 107, 47, 0.12);
+}
+
+.discovery-search-input::placeholder {
   color: var(--muted);
-  cursor: pointer;
+  font-style: italic;
+}
+
+/* ── Topic pill buttons ──────────────────────────────── */
+.discovery-topics {
   display: flex;
-  align-items: center;
-  gap: 3px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 4px 10px;
+}
+
+.topic-pill {
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--muted);
+  background: #f0f4f2;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 140ms ease;
   white-space: nowrap;
 }
 
-.discovery-range input[type="radio"] {
-  accent-color: var(--accent);
-  margin: 0;
-  cursor: pointer;
+.topic-pill:hover {
+  color: var(--ink);
+  background: #e4ebe7;
+  border-color: #b8c4bc;
+}
+
+.topic-pill--active {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.topic-pill--active:hover {
+  background: #b55e26;
+  border-color: #b55e26;
+  color: #ffffff;
+}
+
+/* ── Source badges on discovery cards ─────────────────── */
+.tag-ai {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #ffffff;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.tag-openalex {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 500;
+}
+
+.discovery-badge-ai {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #ffffff;
 }
 
 .discovery-status {

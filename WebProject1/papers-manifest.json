@@ -34,7 +34,7 @@
     "Verified Sparse Attention.pdf",
     "amd-instinct-mi300-cdna3-instruction-set-architecture.pdf"
   ],
-  "updated": "2026-05-07T11:52:42.606443",
+  "updated": "2026-05-13T16:05:40.864698",
   "metadata": {
     "1.Krste .pdf": {
       "title": "Agile Hardware Design \u2014 Krste Asanovi\u0107",
@@ -344,6 +344,7 @@
       "link": ""
     },
     "The Cost of Dynamic Reasoning_Demysifying AI Agents and Test-Time Scaling from an AI Infrastructure Perspective.pdf": {
+      "infographic": "AI papers for WebProject1/The Cost of Dynamic Reasoning_Demysifying AI Agents and Test-Time Scaling from an AI Infrastructure Perspective.jpg",
       "title": "The Cost of Dynamic Reasoning: AI Agents and Test-Time Scaling from an Infrastructure Perspective",
       "authors": "Multiple Authors",
       "year": 2025,
@@ -354,6 +355,7 @@
       "link": ""
     },
     "Verified Sparse Attention.pdf": {
+      "infographic": "AI papers for WebProject1/Verified Sparse Attention.jpg",
       "title": "Verified Sparse Attention",
       "authors": "Multiple Authors",
       "year": 2025,

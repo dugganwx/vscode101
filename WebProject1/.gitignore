@@ -4,3 +4,4 @@ __pycache__/
 papers-manifest.js
 papers-manifest.json
 flask.pid
+azure_openai_config.txt
