@@ -42,8 +42,18 @@ C:\Users\dugganwx\AppData\Local\Python\pythoncore-3.14-64\python.exe -m pip inst
 ## Intel Proxy Configuration
 
 - Outbound HTTP proxy: `http://proxy-dmz.intel.com:912`
-- `NO_PROXY=localhost,127.0.0.1,*.intel.com` is set in `app.py` before any imports — do not remove this or localhost requests will route through the proxy and fail.
+- `NO_PROXY=localhost,127.0.0.1,*.intel.com,.openai.azure.com,10.*` — set in `proxy.bat` and must be inherited by the Flask process.
+- `.openai.azure.com` MUST be in `NO_PROXY` — Azure OpenAI returns 403 "Public access is disabled" when traffic arrives through Intel's proxy. Bypassing the proxy for Azure fixes this.
+- `app.py` also sets `NO_PROXY` via `os.environ.setdefault()` before imports — do not remove this or localhost requests will route through the proxy and fail.
 - Test scripts (`_test_discover.py`) use `proxies={}` (empty dict) to bypass proxy for localhost.
+
+### Launching with proxy.bat
+
+The correct way to start the server with all proxy/bypass settings:
+```
+cmd /c "cd /d C:\Users\dugganwx\vscode101\WebProject1 && set NO_PROXY=localhost,127.0.0.1,*.intel.com,.openai.azure.com,10.* && set no_proxy=localhost,127.0.0.1,*.intel.com,.openai.azure.com,10.* && set http_proxy=http://proxy-dmz.intel.com:912 && set https_proxy=http://proxy-dmz.intel.com:912 && set HTTP_PROXY=http://proxy-dmz.intel.com:912/ && set HTTPS_PROXY=http://proxy-dmz.intel.com:912/ && C:\Users\dugganwx\AppData\Local\Python\pythoncore-3.14-64\python.exe app.py"
+```
+Note: `proxy.bat` contains a `pause` command that blocks execution — use inline `set` commands instead of `call proxy.bat` when chaining with `app.py`.
 
 ## Project Structure
 

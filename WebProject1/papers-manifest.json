@@ -34,7 +34,7 @@
     "Verified Sparse Attention.pdf",
     "amd-instinct-mi300-cdna3-instruction-set-architecture.pdf"
   ],
-  "updated": "2026-05-13T16:05:41.839487",
+  "updated": "2026-05-19T14:19:57.566783",
   "metadata": {
     "1.Krste .pdf": {
       "title": "Agile Hardware Design \u2014 Krste Asanovi\u0107",
@@ -109,6 +109,7 @@
       "link": ""
     },
     "A Survey on Large Language Model Acceleration based on KV Cache Management.pdf": {
+      "infographic": "AI papers for WebProject1/A Survey on Large Language Model Acceleration based on KV Cache Management.jpg",
       "title": "A Survey on LLM Acceleration Based on KV Cache Management",
       "authors": "Multiple Authors",
       "year": 2024,
