@@ -11,8 +11,6 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
-    <!-- PDF.js — renders the first page of each paper PDF as its thumbnail image -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   </head>
   <body>
     <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -25,79 +23,97 @@
       <p class="hero-copy">
         A Flask-powered portal for curating the most important, most read, and latest AI architecture papers with actionable datacenter context.
       </p>
-
-      <div class="filter-strip" role="toolbar" aria-label="Paper category filter">
-        <button class="filter-btn is-active" data-filter="all">All</button>
-        <div class="important-btn-wrap">
-          <button class="filter-btn" data-filter="important">Most Important</button>
-          <span class="important-btn-tip" role="tooltip">Top 5 papers auto-ranked by hardware-relevance score.
- Score = Σ(Tier 1 hardware keywords × 4) + Σ(Tier 2 systems keywords × 2) + max(0, 8 − (currentYear − paperYear)).
- Newer papers score higher on the age term. Admin-pinned papers are exempt.</span>
-        </div>
-        <button class="filter-btn" data-filter="read">Most Read</button>
-        <button class="filter-btn" data-filter="latest">Latest</button>
-      </div>
+      <nav class="page-nav" role="tablist" aria-label="Page navigation">
+        <button class="nav-btn is-active" data-page="page-discovery" role="tab" aria-selected="true">Discovery</button>
+        <button class="nav-btn" data-page="page-search-library" role="tab" aria-selected="false">Search Library</button>
+        <button class="nav-btn" data-page="page-library-view" role="tab" aria-selected="false">Library View</button>
+      </nav>
     </header>
 
-    <main class="layout">
-      <aside class="feed-panel" aria-label="Scrollable paper news feed">
-        <details class="discovery-panel" open aria-label="AI-powered paper discovery">
-          <summary class="feed-title-row">
-            <h2>AI Paper Discovery</h2>
-            <span id="discoveryCount" class="feed-count">Seeded Results</span>
-          </summary>
-          <p id="discoveryQuery" class="discovery-copy"></p>
-          <div class="discovery-actions">
-            <div class="discovery-search-row">
-              <input id="discoverySearchInput" class="discovery-search-input" type="search"
-                     placeholder="Search for AI papers&hellip; e.g. &ldquo;MoE routing efficiency&rdquo;"
-                     aria-label="AI paper search query" autocomplete="off" />
-              <div class="find-btn-wrap">
-                <button id="findNewPapersBtn" class="filter-btn discovery-btn" type="button">Search</button>
-                <span class="find-btn-tip" role="tooltip">AI-powered paper discovery: uses Azure OpenAI to recommend papers, validates with Semantic Scholar, and supplements with OpenAlex. Results appear here — not added to your library.</span>
-              </div>
-            </div>
-            <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready</span>
-          </div>
-          <div class="discovery-topics" aria-label="Quick topic shortcuts">
-            <button class="topic-pill" type="button" data-query="mixture of experts MoE sparse routing">MoE &amp; Sparse Models</button>
-            <button class="topic-pill" type="button" data-query="LLM inference optimization serving throughput latency">Inference Optimization</button>
-            <button class="topic-pill" type="button" data-query="GPU architecture AI accelerator CUDA tensor cores">GPU Architecture</button>
-            <button class="topic-pill" type="button" data-query="large language model training distributed pretraining scaling laws">LLM Training</button>
-            <button class="topic-pill" type="button" data-query="agentic AI autonomous LLM agents planning tool use">Agentic AI</button>
-            <button class="topic-pill" type="button" data-query="quantization compression pruning efficient LLM deployment">Quantization &amp; Compression</button>
-            <button class="topic-pill" type="button" data-query="KV cache memory optimization flash attention transformer">Memory &amp; KV Cache</button>
-            <button class="topic-pill" type="button" data-query="datacenter interconnect NVLink networking optical AI cluster">Interconnects &amp; Networking</button>
-          </div>
-          <div id="discoveryFeed" class="discovery-feed" aria-label="AI-powered search result cards"></div>
-        </details>
+    <!-- ── Page 1: AI Paper Discovery Zone ──────────────────────────── -->
+    <section id="page-discovery" class="page-section page-active" role="tabpanel">
+      <div class="page-container">
+        <h2 class="page-title">AI Paper Discovery Zone</h2>
+        <p id="discoveryQuery" class="discovery-copy"></p>
 
-        <div class="paper-feed-wrap">
-          <div class="feed-title-row">
-            <h2 id="feedTitle">Paper Feed</h2>
-            <span id="feedCount" class="feed-count"></span>
+        <div class="discovery-search-bar">
+          <input id="discoverySearchInput" class="search-input-full" type="search"
+                 placeholder="Search for AI papers&hellip; e.g. &ldquo;MoE routing efficiency&rdquo;"
+                 aria-label="AI paper search query" autocomplete="off" />
+          <div class="find-btn-wrap">
+            <button id="findNewPapersBtn" class="nav-btn discovery-btn" type="button">Search</button>
+            <span class="find-btn-tip" role="tooltip">AI-powered paper discovery: uses Azure OpenAI to recommend papers, validates with Semantic Scholar, and supplements with OpenAlex. Results appear here — not added to your library.</span>
           </div>
-          <div id="paperFeed" class="paper-feed" role="listbox" aria-label="Paper cards"></div>
         </div>
 
-        <details class="upload-panel" aria-label="Upload a new paper">
+        <div class="discovery-topics" aria-label="Quick topic shortcuts">
+          <button class="topic-pill" type="button" data-query="mixture of experts MoE sparse routing">MoE &amp; Sparse Models</button>
+          <button class="topic-pill" type="button" data-query="LLM inference optimization serving throughput latency">Inference Optimization</button>
+          <button class="topic-pill" type="button" data-query="GPU architecture AI accelerator CUDA tensor cores">GPU Architecture</button>
+          <button class="topic-pill" type="button" data-query="large language model training distributed pretraining scaling laws">LLM Training</button>
+          <button class="topic-pill" type="button" data-query="agentic AI autonomous LLM agents planning tool use">Agentic AI</button>
+          <button class="topic-pill" type="button" data-query="quantization compression pruning efficient LLM deployment">Quantization &amp; Compression</button>
+          <button class="topic-pill" type="button" data-query="KV cache memory optimization flash attention transformer">Memory &amp; KV Cache</button>
+          <button class="topic-pill" type="button" data-query="datacenter interconnect NVLink networking optical AI cluster">Interconnects &amp; Networking</button>
+        </div>
+
+        <!-- Year range slider -->
+        <div class="year-range-wrap">
+          <label class="year-range-label">Publication Year Range</label>
+          <div class="year-slider-track">
+            <input type="range" id="yearFrom" class="year-slider year-slider-from" min="2020" max="2026" value="2020" step="1" />
+            <input type="range" id="yearTo" class="year-slider year-slider-to" min="2020" max="2026" value="2026" step="1" />
+          </div>
+          <div class="year-labels">
+            <span id="yearFromLabel" class="year-label">2020</span>
+            <span id="yearToLabel" class="year-label">2026</span>
+          </div>
+        </div>
+
+        <div class="discovery-status-row">
+          <span id="discoveryCount" class="feed-count"></span>
+          <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready</span>
+        </div>
+
+        <div id="discoveryFeed" class="card-grid" aria-label="AI-powered search result cards"></div>
+      </div>
+    </section>
+
+    <!-- ── Page 2: Search Library ───────────────────────────────────── -->
+    <section id="page-search-library" class="page-section" role="tabpanel">
+      <div class="page-container">
+        <h2 class="page-title">Search Library</h2>
+
+        <div class="library-search-bar">
+          <span class="search-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+          </span>
+          <input id="librarySearchInput" class="search-input-full" type="search"
+                 placeholder="Search papers in your library by title, author, summary&hellip;"
+                 aria-label="Library search" autocomplete="off" />
+          <span id="librarySearchCount" class="feed-count" aria-live="polite"></span>
+        </div>
+
+        <details class="upload-panel-page" open aria-label="Upload a new paper">
           <summary class="feed-title-row"><h2>Upload Paper</h2></summary>
           <form id="uploadPaperForm" class="upload-form" enctype="multipart/form-data">
-            <label class="edit-label">PDF File
-              <input type="file" name="pdf" accept=".pdf" required />
-            </label>
-            <label class="edit-label">Title
-              <input type="text" name="title" class="edit-input" placeholder="Auto-inferred from filename if blank" />
-            </label>
-            <label class="edit-label">Authors
-              <input type="text" name="authors" class="edit-input" placeholder="Optional" />
-            </label>
-            <label class="edit-label">Year
-              <input type="number" name="year" class="edit-input" placeholder="Optional" />
-            </label>
-            <label class="edit-label">Preview
-              <textarea name="preview" class="edit-input edit-textarea" rows="2" placeholder="Short preview text (optional)"></textarea>
-            </label>
+            <div class="upload-fields">
+              <label class="edit-label">PDF File
+                <input type="file" name="pdf" accept=".pdf" required />
+              </label>
+              <label class="edit-label">Title
+                <input type="text" name="title" class="edit-input" placeholder="Auto-inferred from filename if blank" />
+              </label>
+              <label class="edit-label">Authors
+                <input type="text" name="authors" class="edit-input" placeholder="Optional" />
+              </label>
+              <label class="edit-label">Year
+                <input type="number" name="year" class="edit-input" placeholder="Optional" />
+              </label>
+              <label class="edit-label">Preview
+                <textarea name="preview" class="edit-input edit-textarea" rows="2" placeholder="Short preview text (optional)"></textarea>
+              </label>
+            </div>
             <div class="detail-link-row">
               <button type="submit" class="solid-link">Upload</button>
               <span id="uploadStatus" class="discovery-status" aria-live="polite"></span>
@@ -105,35 +121,39 @@
           </form>
         </details>
 
-        <div class="summary-search-wrap">
-          <label for="summarySearch" class="summary-search-label">Search Full Paper Summaries</label>
-          <div class="summary-search-row">
-            <span class="summary-search-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
-            </span>
-            <input
-              id="summarySearch"
-              class="summary-search-input"
-              type="search"
-              placeholder="Search titles, authors, summaries&hellip;"
-              aria-label="Search full paper summaries"
-              autocomplete="off"
-            />
-            <span id="summarySearchCount" class="summary-search-count" aria-live="polite"></span>
+        <div id="librarySearchFeed" class="card-grid" aria-label="Library search results"></div>
+      </div>
+    </section>
+
+    <!-- ── Page 3: Library View ─────────────────────────────────────── -->
+    <section id="page-library-view" class="page-section" role="tabpanel">
+      <div class="page-container">
+        <h2 class="page-title">Library View</h2>
+
+        <div class="filter-strip" role="toolbar" aria-label="Paper category filter">
+          <button class="filter-btn is-active" data-filter="all">All</button>
+          <div class="important-btn-wrap">
+            <button class="filter-btn" data-filter="important">Most Important</button>
+            <span class="important-btn-tip" role="tooltip">Top 5 papers auto-ranked by hardware-relevance score.
+ Score = Σ(Tier 1 hardware keywords × 4) + Σ(Tier 2 systems keywords × 2) + max(0, 8 − (currentYear − paperYear)).
+ Newer papers score higher on the age term. Admin-pinned papers are exempt.</span>
           </div>
+          <button class="filter-btn" data-filter="read">Most Read</button>
+          <button class="filter-btn" data-filter="latest">Latest</button>
         </div>
-      </aside>
 
-      <section class="detail-panel" aria-live="polite">
-        <p id="visitCounter"></p>
-        <div id="selectedDetail"></div>
-      </section>
-    </main>
+        <div class="library-status-row">
+          <span id="feedCount" class="feed-count"></span>
+        </div>
 
-    <section class="full-sections-wrap">
-      <h2>Full Paper Summaries</h2>
-      <p class="section-copy">Each section includes a concise summary plus why the paper matters to datacenter design and operations.</p>
-      <div id="fullSections" class="full-sections"></div>
+        <div id="libraryFeed" class="card-grid" aria-label="Library paper cards"></div>
+
+        <div class="full-sections-wrap">
+          <h2>Full Paper Summaries</h2>
+          <p class="section-copy">Each section includes a concise summary plus why the paper matters to datacenter design and operations.</p>
+          <div id="fullSections" class="full-sections"></div>
+        </div>
+      </div>
     </section>
 
     <footer class="footer-note">
@@ -142,8 +162,6 @@
 
     <script src="app.js"></script>
     <script>
-      // Auto-reload when the folder watcher detects new PDFs.
-      // Connects to the Flask SSE endpoint.
       (function () {
         if (!location.hostname) return;
         var es = new EventSource("/api/changes");
@@ -151,7 +169,7 @@
           if (e.data === "reload") location.reload();
         };
         es.onerror = function () {
-          es.close(); // server stopped — give up quietly
+          es.close();
         };
       })();
     </script>

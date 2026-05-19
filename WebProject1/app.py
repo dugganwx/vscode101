@@ -58,6 +58,8 @@ import json
 import time
 import datetime
 import threading
+import base64
+import tempfile
 from queue import Queue, Empty
 
 from flask import (
@@ -68,9 +70,10 @@ from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import requests as http_requests
 from openai import AzureOpenAI
+import fitz  # PyMuPDF
 
 from models import (
-    init_db, get_all_papers, get_paper, upsert_paper,
+    init_db, get_all_papers, search_papers, get_paper, upsert_paper,
     update_paper, delete_paper, paper_exists,
     slugify, infer_year, to_display_title,
     create_user, get_user_by_id, verify_user, user_count
@@ -311,6 +314,9 @@ def serve_keyword_image(filename):
 @app.route("/api/papers", methods=["GET"])
 @login_required
 def api_list_papers():
+    q = request.args.get("q", "").strip()
+    if q:
+        return jsonify(search_papers(q))
     return jsonify(get_all_papers())
 
 
@@ -411,6 +417,77 @@ def api_delete_paper(paper_id):
     return "", 204
 
 
+# ── REST API: Image Generation ──────────────────────────────────────────────
+
+@app.route("/api/papers/<paper_id>/generate-images", methods=["POST"])
+@login_required
+def api_generate_images(paper_id):
+    """Generate best-figure and infographic for a library paper."""
+    paper = get_paper(paper_id)
+    if not paper:
+        abort(404)
+
+    result = {"best_figure": None, "generated_infographic": None, "errors": []}
+
+    # Extract best figure from PDF
+    pdf_path = os.path.join(PAPER_FOLDER, paper.get("filename", ""))
+    if os.path.exists(pdf_path):
+        try:
+            fig_path = _extract_best_figure(pdf_path, paper_id)
+            if fig_path:
+                update_paper(paper_id, {"best_figure": fig_path})
+                result["best_figure"] = fig_path
+            else:
+                result["errors"].append("Best figure extraction returned no result")
+        except Exception as e:
+            result["errors"].append(f"Best figure extraction failed: {e}")
+    else:
+        result["errors"].append(f"PDF not found: {paper.get('filename', '')}")
+
+    # Generate infographic
+    try:
+        info_path = _generate_infographic(paper, paper_id)
+        if info_path:
+            update_paper(paper_id, {"generated_infographic": info_path})
+            result["generated_infographic"] = info_path
+        else:
+            result["errors"].append("Infographic generation returned no result (model may not support image generation)")
+    except Exception as e:
+        result["errors"].append(f"Infographic generation failed: {e}")
+
+    notify_clients()
+
+    status = 200 if (result["best_figure"] or result["generated_infographic"]) else 502
+    return jsonify(result), status
+
+
+@app.route("/api/discover/figure", methods=["POST"])
+@login_required
+def api_discover_figure():
+    """Extract best figure from a discovery paper's PDF URL. Returns base64."""
+    data = request.get_json(silent=True) or {}
+    pdf_url = data.get("pdf_url", "").strip()
+    if not pdf_url:
+        return jsonify({"error": "pdf_url is required"}), 400
+
+    # Convert arxiv abstract URLs to PDF URLs
+    if "arxiv.org/abs/" in pdf_url:
+        pdf_url = pdf_url.replace("arxiv.org/abs/", "arxiv.org/pdf/")
+    elif "arxiv.org" in pdf_url and not pdf_url.endswith(".pdf"):
+        import re as _re
+        m = _re.search(r'(\d{4}\.\d{4,5})', pdf_url)
+        if m:
+            pdf_url = f"https://arxiv.org/pdf/{m.group(1)}"
+
+    try:
+        figure_b64 = _extract_figure_from_url(pdf_url)
+        if figure_b64:
+            return jsonify({"figure_base64": figure_b64})
+        return jsonify({"error": "Could not extract figure from PDF"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── REST API: AI-Powered Discovery ──────────────────────────────────────────
 
 PROXY_URL = os.environ.get("HTTP_PROXY", "http://proxy-dmz.intel.com:912")
@@ -470,6 +547,311 @@ def _get_azure_client():
         api_version=_azure_cfg.get("api_version", "2025-01-01-preview"),
     )
     return _azure_client
+
+# ── Image extraction / generation helpers ───────────────────────────────────
+
+GENERATED_IMG_DIR = os.path.join(PAPER_FOLDER, "generated")
+os.makedirs(GENERATED_IMG_DIR, exist_ok=True)
+
+
+def _render_pdf_pages(pdf_path, dpi=150, max_pages=20):
+    """Render PDF pages as JPEG bytes. Returns list of (page_num, jpeg_bytes)."""
+    doc = fitz.open(pdf_path)
+    pages = []
+    for i in range(min(len(doc), max_pages)):
+        page = doc[i]
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
+        pix = page.get_pixmap(matrix=mat)
+        pages.append((i, pix.tobytes("jpeg", 80)))
+    doc.close()
+    return pages
+
+
+def _render_single_page(pdf_path, page_num, dpi=250):
+    """Render a single PDF page at higher DPI. Returns JPEG bytes."""
+    doc = fitz.open(pdf_path)
+    page = doc[min(page_num, len(doc) - 1)]
+    mat = fitz.Matrix(dpi / 72, dpi / 72)
+    pix = page.get_pixmap(matrix=mat)
+    data = pix.tobytes("jpeg", 90)
+    doc.close()
+    return data
+
+
+def _crop_figure_from_page(pdf_path, page_num, client, deployment):
+    """Extract the best figure image from a PDF page.
+
+    Strategy (in order):
+    1. Use PyMuPDF to extract embedded images from the page.  Pick the
+       largest one (by pixel area) that isn't a tiny icon.
+    2. If no suitable embedded image is found, fall back to a GPT-4o
+       vision call to get a bounding box, then crop the rendered page.
+    3. If that also fails, return the full page.
+    """
+    doc = fitz.open(pdf_path)
+    page = doc[min(page_num, len(doc) - 1)]
+
+    # ── Strategy 1: extract embedded images directly ──────────────
+    best_img_bytes = None
+    best_area = 0
+    try:
+        for img_info in page.get_images(full=True):
+            xref = img_info[0]
+            base_image = doc.extract_image(xref)
+            if not base_image or not base_image.get("image"):
+                continue
+            w, h = base_image.get("width", 0), base_image.get("height", 0)
+            area = w * h
+            # Skip tiny images (icons, logos, bullets) — require at least 150×150
+            if w < 150 or h < 150:
+                continue
+            if area > best_area:
+                best_area = area
+                best_img_bytes = base_image["image"]
+    except Exception as e:
+        print(f"  [Image] Embedded image extraction failed: {e}")
+
+    if best_img_bytes and best_area >= 100_000:
+        doc.close()
+        print(f"  [Image] Extracted embedded image ({best_area} px²) from page {page_num}")
+        # Re-encode as JPEG if needed (embedded images can be PNG, JPEG, etc.)
+        try:
+            pix = fitz.Pixmap(best_img_bytes)
+            if pix.alpha:
+                pix = fitz.Pixmap(fitz.csRGB, pix)  # drop alpha channel
+            return pix.tobytes("jpeg", 92)
+        except Exception:
+            return best_img_bytes
+
+    # ── Strategy 2: GPT-4o vision bounding box ────────────────────
+    print(f"  [Image] No large embedded image on page {page_num}, trying GPT-4o bbox")
+    medium_dpi = 150
+    mat = fitz.Matrix(medium_dpi / 72, medium_dpi / 72)
+    pix = page.get_pixmap(matrix=mat)
+    medium_bytes = pix.tobytes("jpeg", 80)
+    b64 = base64.b64encode(medium_bytes).decode("ascii")
+
+    content = [
+        {"type": "text", "text": (
+            "This is a page from an academic paper. "
+            "Identify the single MOST IMPORTANT figure, diagram, chart, or architecture illustration on this page. "
+            "I need the bounding box of ONLY the graphical/visual content — "
+            "DO NOT include the figure caption text (e.g. 'Figure 1: ...'), "
+            "DO NOT include any body text paragraphs above or below the figure, "
+            "DO NOT include figure numbers or labels outside the diagram itself. "
+            "The box should tightly wrap just the drawn diagram, chart, or image. "
+            "Return normalised coordinates where (0,0) is the top-left and (1,1) is the bottom-right of the page. "
+            "Return ONLY a JSON object: "
+            "{\"x1\": <left>, \"y1\": <top>, \"x2\": <right>, \"y2\": <bottom>}"
+        )},
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
+    ]
+
+    bbox = None
+    try:
+        completion = client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": content}],
+            max_tokens=150,
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(completion.choices[0].message.content)
+        x1, y1 = float(data["x1"]), float(data["y1"])
+        x2, y2 = float(data["x2"]), float(data["y2"])
+        # Sanity checks
+        if 0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1 and (x2 - x1) > 0.05 and (y2 - y1) > 0.05:
+            bbox = (x1, y1, x2, y2)
+    except Exception as e:
+        print(f"  [Image] Bounding-box detection failed: {e}")
+
+    # ── Render cropped region (or full page fallback) ─────────────
+    render_dpi = 300
+    if bbox:
+        x1, y1, x2, y2 = bbox
+        pw, ph = page.rect.width, page.rect.height
+        clip = fitz.Rect(x1 * pw, y1 * ph, x2 * pw, y2 * ph)
+        mat = fitz.Matrix(render_dpi / 72, render_dpi / 72)
+        pix = page.get_pixmap(matrix=mat, clip=clip)
+    else:
+        mat = fitz.Matrix(render_dpi / 72, render_dpi / 72)
+        pix = page.get_pixmap(matrix=mat)
+
+    result = pix.tobytes("jpeg", 92)
+    doc.close()
+    return result
+
+
+def _extract_best_figure(pdf_path, paper_id):
+    """Use GPT-4o vision to find the best figure page, save it as JPEG. Returns relative path or None."""
+    client = _get_azure_client()
+    if client is None:
+        return None
+    deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
+
+    pages = _render_pdf_pages(pdf_path, dpi=100, max_pages=15)
+    if not pages:
+        return None
+
+    # Build vision content: send thumbnails of all pages
+    content = [{"type": "text", "text": (
+        "You are analyzing pages from an academic paper PDF. "
+        "Each image is a page from the paper. "
+        "Which page number (0-indexed) contains the MOST IMPORTANT figure, "
+        "diagram, or chart that best illustrates the paper's primary contribution or architecture? "
+        "Prefer architecture diagrams, system overviews, and result charts over tables of numbers. "
+        "Skip the title page and pages that are mostly text. "
+        f"There are {len(pages)} pages (numbered 0 to {len(pages)-1}). "
+        "Return ONLY a JSON object: {\"page\": <number>, \"reason\": \"<brief reason>\"}"
+    )}]
+    for page_num, jpeg_bytes in pages:
+        b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}
+        })
+
+    try:
+        completion = client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": content}],
+            max_tokens=200,
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        raw = completion.choices[0].message.content
+        data = json.loads(raw)
+        best_page = int(data.get("page", 1))
+    except Exception as e:
+        print(f"  [Image] Vision best-figure failed for {paper_id}: {e}")
+        # Fallback: pick page 2 (often has architecture diagram)
+        best_page = min(1, len(pages) - 1)
+
+    # Crop just the figure from the chosen page and save
+    hq_bytes = _crop_figure_from_page(pdf_path, best_page, client, deployment)
+    safe_id = re.sub(r'[^a-z0-9_-]', '_', paper_id)
+    filename = f"{safe_id}_figure.jpg"
+    save_path = os.path.join(GENERATED_IMG_DIR, filename)
+    with open(save_path, "wb") as f:
+        f.write(hq_bytes)
+
+    return f"{PAPER_FOLDER}/generated/{filename}"
+
+
+def _generate_infographic(paper_dict, paper_id):
+    """Use Azure OpenAI image generation to create an infographic. Returns relative path or None."""
+    client = _get_azure_client()
+    if client is None:
+        return None
+
+    prompt = (
+        f"Create a clean, professional technical infographic for an academic paper titled "
+        f"\"{paper_dict.get('title', 'AI Research Paper')}\". "
+        f"Key points to visualize: {paper_dict.get('summary', '')[:300]}. "
+        f"Datacenter relevance: {paper_dict.get('datacenter', '')[:200]}. "
+        f"Key metrics: {paper_dict.get('metrics', '')[:150]}. "
+        f"Style: modern flat design, datacenter/AI theme, blue and teal color palette, "
+        f"clean icons, minimal text, suitable as a thumbnail for an academic paper portal. "
+        f"Do NOT include any text that looks like a title or heading."
+    )
+
+    safe_id = re.sub(r'[^a-z0-9_-]', '_', paper_id)
+    filename = f"{safe_id}_infographic.jpg"
+    save_path = os.path.join(GENERATED_IMG_DIR, filename)
+    rel_path = f"{PAPER_FOLDER}/generated/{filename}"
+
+    # Try gpt-4o image generation first, then dall-e-3 fallback
+    for model_name in ["gpt-4o", "dall-e-3"]:
+        try:
+            response = client.images.generate(
+                model=model_name,
+                prompt=prompt,
+                size="1024x1024",
+                quality="standard",
+                n=1,
+            )
+            image_url = response.data[0].url
+            if image_url:
+                # Download the generated image
+                img_response = http_requests.get(image_url, timeout=30, proxies={})
+                if img_response.ok:
+                    with open(save_path, "wb") as f:
+                        f.write(img_response.content)
+                    print(f"  [Image] Infographic generated via {model_name} for {paper_id}")
+                    return rel_path
+            # If response has b64_json instead of url
+            b64_data = getattr(response.data[0], 'b64_json', None)
+            if b64_data:
+                with open(save_path, "wb") as f:
+                    f.write(base64.b64decode(b64_data))
+                print(f"  [Image] Infographic generated via {model_name} (b64) for {paper_id}")
+                return rel_path
+        except Exception as e:
+            print(f"  [Image] Infographic via {model_name} failed for {paper_id}: {e}")
+            continue
+
+    return None
+
+
+def _extract_figure_from_url(pdf_url):
+    """Download a PDF from URL, extract best figure, return base64 data URL or None."""
+    client = _get_azure_client()
+    if client is None:
+        return None
+
+    # Download PDF to temp file
+    try:
+        r = http_requests.get(pdf_url, timeout=30, proxies=_proxies, stream=True)
+        if not r.ok:
+            return None
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            for chunk in r.iter_content(8192):
+                tmp.write(chunk)
+            tmp_path = tmp.name
+    except Exception as e:
+        print(f"  [Image] PDF download failed: {e}")
+        return None
+
+    try:
+        deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
+        pages = _render_pdf_pages(tmp_path, dpi=100, max_pages=10)
+        if not pages:
+            return None
+
+        content = [{"type": "text", "text": (
+            "You are analyzing pages from an academic paper PDF. "
+            "Which page number (0-indexed) contains the MOST IMPORTANT figure or diagram? "
+            f"There are {len(pages)} pages (numbered 0 to {len(pages)-1}). "
+            "Return ONLY a JSON object: {\"page\": <number>}"
+        )}]
+        for page_num, jpeg_bytes in pages:
+            b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}
+            })
+
+        try:
+            completion = client.chat.completions.create(
+                model=deployment,
+                messages=[{"role": "user", "content": content}],
+                max_tokens=100,
+                temperature=0.1,
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(completion.choices[0].message.content)
+            best_page = int(data.get("page", 1))
+        except Exception:
+            best_page = min(1, len(pages) - 1)
+
+        hq_bytes = _crop_figure_from_page(tmp_path, best_page, client, deployment)
+        b64_str = base64.b64encode(hq_bytes).decode("ascii")
+        return f"data:image/jpeg;base64,{b64_str}"
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 # ── LLM paper recommendation ───────────────────────────────────────────────
 
@@ -708,13 +1090,15 @@ def api_discover():
         except Exception as e:
             errors.append(f"AI recommendation: {e}")
 
-    # Stage 3: OpenAlex supplemental search (recent papers)
+    # Stage 3: OpenAlex supplemental search
     try:
-        since = _months_ago_date(3)
+        year_from = request.args.get("year_from", "2020", type=str)
+        year_to = request.args.get("year_to", "2026", type=str)
+        oa_filter = f"publication_date:>{year_from}-01-01,publication_date:<{year_to}-12-31"
         r = http_requests.get(
             "https://api.openalex.org/works",
             params={"search": query_text, "sort": "publication_date:desc",
-                    "filter": f"publication_date:>{since}", "per-page": "15"},
+                    "filter": oa_filter, "per-page": "15"},
             headers={"Accept": "application/json"},
             timeout=15,
             proxies=_proxies,

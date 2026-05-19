@@ -33,6 +33,8 @@ def init_db():
             metrics TEXT,
             link TEXT,
             infographic TEXT,
+            best_figure TEXT,
+            generated_infographic TEXT,
             groups TEXT DEFAULT '["latest"]',
             pinned INTEGER DEFAULT 0,
             created_at TEXT,
@@ -47,6 +49,12 @@ def init_db():
             created_at TEXT
         )
     """)
+    # Idempotent migration: add columns if they don't exist yet
+    for col in ("best_figure", "generated_infographic"):
+        try:
+            conn.execute(f"ALTER TABLE papers ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.commit()
     conn.close()
 
@@ -64,6 +72,21 @@ def _row_to_dict(row):
 def get_all_papers():
     conn = _connect()
     rows = conn.execute("SELECT * FROM papers ORDER BY year DESC, title ASC").fetchall()
+    conn.close()
+    return [_row_to_dict(r) for r in rows]
+
+
+def search_papers(query):
+    """Search papers by matching query text against title, authors, summary, datacenter, metrics."""
+    conn = _connect()
+    like = f"%{query}%"
+    rows = conn.execute(
+        """SELECT * FROM papers
+           WHERE title LIKE ? OR authors LIKE ? OR summary LIKE ?
+                 OR datacenter LIKE ? OR metrics LIKE ?
+           ORDER BY year DESC, title ASC""",
+        (like, like, like, like, like)
+    ).fetchall()
     conn.close()
     return [_row_to_dict(r) for r in rows]
 
@@ -85,14 +108,19 @@ def upsert_paper(data):
     conn = _connect()
     conn.execute("""
         INSERT INTO papers (id, filename, title, authors, year, preview, summary,
-                            datacenter, metrics, link, infographic, groups, pinned,
+                            datacenter, metrics, link, infographic,
+                            best_figure, generated_infographic,
+                            groups, pinned,
                             created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             filename=excluded.filename, title=excluded.title, authors=excluded.authors,
             year=excluded.year, preview=excluded.preview, summary=excluded.summary,
             datacenter=excluded.datacenter, metrics=excluded.metrics, link=excluded.link,
-            infographic=excluded.infographic, groups=excluded.groups, pinned=excluded.pinned,
+            infographic=excluded.infographic,
+            best_figure=excluded.best_figure,
+            generated_infographic=excluded.generated_infographic,
+            groups=excluded.groups, pinned=excluded.pinned,
             updated_at=excluded.updated_at
     """, (
         data["id"], data.get("filename", ""), data.get("title", ""),
@@ -100,6 +128,7 @@ def upsert_paper(data):
         data.get("preview", ""), data.get("summary", ""),
         data.get("datacenter", ""), data.get("metrics", ""),
         data.get("link", ""), data.get("infographic", ""),
+        data.get("best_figure", ""), data.get("generated_infographic", ""),
         groups, data.get("pinned", 0), now, now
     ))
     conn.commit()
@@ -108,7 +137,8 @@ def upsert_paper(data):
 def update_paper(paper_id, fields):
     """Update only the provided fields for a paper."""
     allowed = {"title", "authors", "year", "preview", "summary", "datacenter",
-               "metrics", "link", "infographic", "groups", "pinned"}
+               "metrics", "link", "infographic", "best_figure",
+               "generated_infographic", "groups", "pinned"}
     updates = {}
     for k, v in fields.items():
         if k in allowed:
