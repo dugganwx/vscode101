@@ -1200,30 +1200,30 @@ def _crop_figure_from_page(pdf_path, page_num, client, deployment, feedback_summ
             bbox = (x1, y1, x2, y2)
     except Exception as e:
         print(f"  [Image] Bounding-box detection failed: {e}")
+        doc.close()
+        return None, None
 
-    # ── Render cropped region (or full page fallback) ─────────────
+    if bbox is None:
+        doc.close()
+        return None, None
+
+    # ── Render cropped region ─────────────────────────────────────
     render_dpi = 300
-    if bbox:
-        x1, y1, x2, y2 = bbox
-        pw, ph = page.rect.width, page.rect.height
-        clip = fitz.Rect(x1 * pw, y1 * ph, x2 * pw, y2 * ph)
-        mat = fitz.Matrix(render_dpi / 72, render_dpi / 72)
-        pix = page.get_pixmap(matrix=mat, clip=clip)
-    else:
-        mat = fitz.Matrix(render_dpi / 72, render_dpi / 72)
-        pix = page.get_pixmap(matrix=mat)
+    x1, y1, x2, y2 = bbox
+    pw, ph = page.rect.width, page.rect.height
+    clip = fitz.Rect(x1 * pw, y1 * ph, x2 * pw, y2 * ph)
+    mat = fitz.Matrix(render_dpi / 72, render_dpi / 72)
+    pix = page.get_pixmap(matrix=mat, clip=clip)
 
     result = pix.tobytes("jpeg", 92)
     doc.close()
-    bbox_payload = None
-    if bbox:
-        x1, y1, x2, y2 = bbox
-        bbox_payload = {
-            "x1": round(x1, 4),
-            "y1": round(y1, 4),
-            "x2": round(x2, 4),
-            "y2": round(y2, 4),
-        }
+    x1, y1, x2, y2 = bbox
+    bbox_payload = {
+        "x1": round(x1, 4),
+        "y1": round(y1, 4),
+        "x2": round(x2, 4),
+        "y2": round(y2, 4),
+    }
     return result, bbox_payload
 
 
@@ -1269,11 +1269,12 @@ def _extract_best_figure(pdf_path, paper_id):
         best_page = int(data.get("page", 1))
     except Exception as e:
         print(f"  [Image] Vision best-figure failed for {paper_id}: {e}")
-        # Fallback: pick page 2 (often has architecture diagram)
-        best_page = min(1, len(pages) - 1)
+        return None
 
     # Crop just the figure from the chosen page and save
     hq_bytes, _ = _crop_figure_from_page(pdf_path, best_page, client, deployment)
+    if hq_bytes is None:
+        return None
     safe_id = re.sub(r'[^a-z0-9_-]', '_', paper_id)
     filename = f"{safe_id}_figure.jpg"
     save_path = os.path.join(GENERATED_IMG_DIR, filename)
@@ -1413,8 +1414,12 @@ def _extract_figure_from_url(pdf_url):
             )
             data = json.loads(completion.choices[0].message.content)
             best_page = int(data.get("page", 1))
-        except Exception:
-            best_page = min(1, len(pages) - 1)
+        except Exception as e:
+            return {
+                "status": "error",
+                "reason": "ai_page_selection_failed",
+                "message": f"AI failed to select best figure page: {e}",
+            }
 
         hq_bytes, bbox_payload = _crop_figure_from_page(
             tmp_path,
@@ -1423,24 +1428,21 @@ def _extract_figure_from_url(pdf_url):
             deployment,
             feedback_summary=feedback_summary,
         )
+        if hq_bytes is None:
+            return {
+                "status": "error",
+                "reason": "figure_extraction_failed",
+                "message": "AI figure extraction failed: bounding box detection did not succeed.",
+            }
         b64_str = base64.b64encode(hq_bytes).decode("ascii")
-        status = "found" if bbox_payload else "uncertain"
-        reason = "detected_figure" if bbox_payload else "low_confidence"
-        message = (
-            "Figure located and extracted."
-            if bbox_payload
-            else "A candidate region was extracted, but confidence is low."
-        )
-        confidence = 0.85 if bbox_payload else 0.4
         outcome = {
-            "status": status,
-            "reason": reason,
-            "message": message,
+            "status": "found",
+            "reason": "detected_figure",
+            "message": "Figure located and extracted.",
             "figure_base64": f"data:image/jpeg;base64,{b64_str}",
             "page": int(best_page),
             "bbox": bbox_payload,
             "model": deployment,
-            "confidence": confidence,
         }
         print(
             f"  [Image] Discovery figure outcome: status={outcome['status']}, "
