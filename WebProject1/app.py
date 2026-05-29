@@ -60,6 +60,9 @@ import datetime
 import threading
 import base64
 import tempfile
+import sqlite3
+import uuid
+from xml.etree import ElementTree as ET
 from queue import Queue, Empty
 
 from flask import (
@@ -74,9 +77,11 @@ import fitz  # PyMuPDF
 
 from models import (
     init_db, get_all_papers, search_papers, get_paper, upsert_paper,
-    update_paper, delete_paper, paper_exists,
+    update_paper, delete_paper,
     slugify, infer_year, to_display_title,
-    create_user, get_user_by_id, verify_user, user_count
+    create_user, get_user_by_id, verify_user, user_count,
+    upsert_external_paper, search_external_papers, external_paper_count,
+    save_figure_feedback, get_figure_feedback_summary
 )
 
 # ── App setup ───────────────────────────────────────────────────────────────
@@ -150,7 +155,7 @@ def _load_sidecar(filename):
             with open(jpath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             for k in ("title", "authors", "year", "preview", "summary",
-                      "datacenter", "metrics", "link", "infographic"):
+                      "datacenter", "metrics", "link", "infographic", "citation_count"):
                 if k in data:
                     sidecar[k] = data[k]
         except Exception as e:
@@ -180,27 +185,38 @@ def _import_pdf(filename):
         "id": paper_id,
         "filename": filename,
         "title": title,
-        "authors": sidecar.get("authors", "Repository Paper"),
+        "authors": sidecar.get("authors", ""),
         "year": year,
         "groups": groups,
         "pinned": 1 if has_groups else 0,
-        "preview": sidecar.get("preview", "Local repository entry loaded from your WebProject1 paper folder."),
-        "summary": sidecar.get("summary", "This entry is pulled from the local paper repository."),
-        "datacenter": sidecar.get("datacenter", "Potentially relevant to accelerator efficiency, cluster architecture, inference economics, or system-level AI deployment tradeoffs."),
-        "metrics": sidecar.get("metrics", "Key result signal not yet extracted. Review and annotate this item for production use."),
+        "preview": sidecar.get("preview", ""),
+        "summary": sidecar.get("summary", ""),
+        "datacenter": sidecar.get("datacenter", ""),
+        "metrics": sidecar.get("metrics", ""),
         "link": sidecar.get("link") or f"{PAPER_FOLDER}/{filename}",
         "infographic": sidecar.get("infographic", ""),
+        "citation_count": int(sidecar.get("citation_count", 0) or 0),
     })
 
 
 def watch_loop():
-    """Background thread: polls the paper folder for new/removed PDFs."""
-    last_files = None
+    """Background thread: polls the paper folder for new/removed PDFs and JPGs."""
+    last_files = None      # sorted list of PDFs
+    last_jpg_set = None    # set of JPG basenames (without extension)
     while True:
         try:
-            files = sorted(f for f in os.listdir(PAPER_FOLDER) if f.lower().endswith(".pdf"))
+            all_entries = os.listdir(PAPER_FOLDER)
         except FileNotFoundError:
-            files = []
+            all_entries = []
+
+        files = sorted(f for f in all_entries if f.lower().endswith(".pdf"))
+        jpg_set = set(
+            os.path.splitext(f)[0]
+            for f in all_entries
+            if f.lower().endswith((".jpg", ".jpeg"))
+        )
+
+        changed = False
 
         if files != last_files:
             # Import any new PDFs
@@ -209,13 +225,26 @@ def watch_loop():
                 if f not in old_set:
                     _import_pdf(f)
                     print(f"  [watcher] Imported: {f}")
-
-            if last_files is not None:
-                now = datetime.datetime.now().strftime("%H:%M:%S")
-                print(f"[{now}] Folder change detected — signalling browsers")
-                notify_clients()
-
+            changed = last_files is not None
             last_files = files
+
+        # Detect new JPG infographics and re-import their PDFs
+        if last_jpg_set is not None and jpg_set != last_jpg_set:
+            new_jpgs = jpg_set - last_jpg_set
+            for base in new_jpgs:
+                # Find the matching PDF
+                for f in files:
+                    if os.path.splitext(f)[0] == base:
+                        _import_pdf(f)
+                        print(f"  [watcher] Re-imported (new infographic): {f}")
+                        break
+            changed = True
+        last_jpg_set = jpg_set
+
+        if changed:
+            now = datetime.datetime.now().strftime("%H:%M:%S")
+            print(f"[{now}] Folder change detected — signalling browsers")
+            notify_clients()
 
         time.sleep(POLL_INTERVAL)
 
@@ -286,7 +315,27 @@ def logout():
 @app.route("/")
 @login_required
 def serve_index():
+    # Increment visit counter
+    try:
+        conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "papers.db"))
+        conn.execute("UPDATE site_stats SET value = value + 1 WHERE key = 'visit_count'")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
     return send_from_directory(".", "index.html")
+
+
+@app.route("/api/visit-count")
+@login_required
+def api_visit_count():
+    try:
+        conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "papers.db"))
+        row = conn.execute("SELECT value FROM site_stats WHERE key = 'visit_count'").fetchone()
+        conn.close()
+        return jsonify({"count": row[0] if row else 0})
+    except Exception:
+        return jsonify({"count": 0})
 
 
 @app.route("/styles.css")
@@ -360,14 +409,14 @@ def api_create_paper():
         "id": paper_id,
         "filename": filename,
         "title": title,
-        "authors": request.form.get("authors", "Repository Paper").strip(),
+        "authors": request.form.get("authors", "").strip(),
         "year": year,
         "groups": ["latest"],
         "pinned": 0,
-        "preview": request.form.get("preview", "").strip() or "Local repository entry loaded from your WebProject1 paper folder.",
-        "summary": request.form.get("summary", "").strip() or "This entry is pulled from the local paper repository.",
-        "datacenter": request.form.get("datacenter", "").strip() or "Potentially relevant to accelerator efficiency, cluster architecture, inference economics, or system-level AI deployment tradeoffs.",
-        "metrics": request.form.get("metrics", "").strip() or "Key result signal not yet extracted.",
+        "preview": request.form.get("preview", "").strip(),
+        "summary": request.form.get("summary", "").strip(),
+        "datacenter": request.form.get("datacenter", "").strip(),
+        "metrics": request.form.get("metrics", "").strip(),
         "link": f"{PAPER_FOLDER}/{filename}",
         "infographic": "",
     }
@@ -418,6 +467,30 @@ def api_delete_paper(paper_id):
 
 
 # ── REST API: Image Generation ──────────────────────────────────────────────
+
+@app.route("/api/papers/<paper_id>/generate-infographic", methods=["POST"])
+@login_required
+def api_generate_infographic(paper_id):
+    """Generate only the infographic for a library paper (Library View button)."""
+    paper = get_paper(paper_id)
+    if not paper:
+        abort(404)
+
+    result = {"generated_infographic": None, "errors": []}
+    try:
+        info_path = _generate_infographic(paper, paper_id)
+        if info_path:
+            update_paper(paper_id, {"generated_infographic": info_path})
+            result["generated_infographic"] = info_path
+        else:
+            result["errors"].append("Infographic generation returned no result")
+    except Exception as e:
+        result["errors"].append(f"Infographic generation failed: {e}")
+
+    notify_clients()
+    status = 200 if result["generated_infographic"] else 502
+    return jsonify(result), status
+
 
 @app.route("/api/papers/<paper_id>/generate-images", methods=["POST"])
 @login_required
@@ -479,13 +552,221 @@ def api_discover_figure():
         if m:
             pdf_url = f"https://arxiv.org/pdf/{m.group(1)}"
 
+    request_id = str(uuid.uuid4())
+
     try:
-        figure_b64 = _extract_figure_from_url(pdf_url)
-        if figure_b64:
-            return jsonify({"figure_base64": figure_b64})
-        return jsonify({"error": "Could not extract figure from PDF"}), 502
+        result = _extract_figure_from_url(pdf_url)
+        status = (result or {}).get("status") or "error"
+        payload = {
+            "status": status,
+            "reason": (result or {}).get("reason", "unknown"),
+            "message": (result or {}).get("message", ""),
+            "request_id": request_id,
+            "pdf_url": pdf_url,
+            "figure_base64": (result or {}).get("figure_base64"),
+            "page": (result or {}).get("page"),
+            "bbox": (result or {}).get("bbox"),
+            "bbox_found": bool((result or {}).get("bbox")),
+            "model": (result or {}).get("model", "gpt-4o"),
+            "confidence": (result or {}).get("confidence"),
+        }
+        if status in {"found", "none", "uncertain"}:
+            return jsonify(payload), 200
+        return jsonify(payload), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "reason": "exception",
+            "message": str(e),
+            "request_id": request_id,
+            "pdf_url": pdf_url,
+            "figure_base64": None,
+            "bbox": None,
+            "bbox_found": False,
+        }), 500
+
+
+def _normalize_manual_bbox(raw_bbox):
+    """Validate and normalize a client-supplied bbox payload."""
+    if not isinstance(raw_bbox, dict):
+        return None
+    try:
+        x1 = max(0.0, min(1.0, float(raw_bbox.get("x1"))))
+        y1 = max(0.0, min(1.0, float(raw_bbox.get("y1"))))
+        x2 = max(0.0, min(1.0, float(raw_bbox.get("x2"))))
+        y2 = max(0.0, min(1.0, float(raw_bbox.get("y2"))))
+    except (TypeError, ValueError):
+        return None
+
+    width = x2 - x1
+    height = y2 - y1
+    if width < 0.05 or height < 0.05:
+        return None
+    if x1 >= x2 or y1 >= y2:
+        return None
+
+    return {
+        "x1": round(x1, 4),
+        "y1": round(y1, 4),
+        "x2": round(x2, 4),
+        "y2": round(y2, 4),
+    }
+
+
+def _normalize_bbox_loose(raw_bbox):
+    """Normalize bbox without enforcing minimum area."""
+    if not isinstance(raw_bbox, dict):
+        return None
+    try:
+        x1 = max(0.0, min(1.0, float(raw_bbox.get("x1"))))
+        y1 = max(0.0, min(1.0, float(raw_bbox.get("y1"))))
+        x2 = max(0.0, min(1.0, float(raw_bbox.get("x2"))))
+        y2 = max(0.0, min(1.0, float(raw_bbox.get("y2"))))
+    except (TypeError, ValueError):
+        return None
+    if x1 >= x2 or y1 >= y2:
+        return None
+    return {
+        "x1": round(x1, 4),
+        "y1": round(y1, 4),
+        "x2": round(x2, 4),
+        "y2": round(y2, 4),
+    }
+
+
+def _normalize_discovery_pdf_url(pdf_url):
+    """Convert discovery links to direct PDF URLs when possible."""
+    if "arxiv.org/abs/" in pdf_url:
+        return pdf_url.replace("arxiv.org/abs/", "arxiv.org/pdf/")
+    if "arxiv.org" in pdf_url and not pdf_url.endswith(".pdf"):
+        m = re.search(r'(\d{4}\.\d{4,5})', pdf_url)
+        if m:
+            return f"https://arxiv.org/pdf/{m.group(1)}"
+    return pdf_url
+
+
+def _download_pdf_to_temp(pdf_url):
+    """Download a PDF URL to a temp file path or return an error message."""
+    try:
+        r = http_requests.get(pdf_url, timeout=30, proxies=_proxies, stream=True)
+        if not r.ok:
+            return None, f"Could not download PDF (HTTP {r.status_code})"
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            for chunk in r.iter_content(8192):
+                tmp.write(chunk)
+            return tmp.name, ""
+    except Exception as e:
+        return None, f"PDF download failed: {e}"
+
+
+def _extract_page_image_from_url(pdf_url, page_num=0, base_bbox=None, dpi=220):
+    """Download PDF and render requested page/region as JPEG data URL."""
+    tmp_path, download_error = _download_pdf_to_temp(pdf_url)
+    if not tmp_path:
+        return {"error": download_error}
+
+    try:
+        doc = fitz.open(tmp_path)
+        page_count = len(doc)
+        if page_count <= 0:
+            doc.close()
+            return {"error": "PDF has no pages"}
+
+        safe_idx = min(max(int(page_num or 0), 0), page_count - 1)
+        page = doc[safe_idx]
+        pw, ph = page.rect.width, page.rect.height
+        clip_rect = fitz.Rect(0, 0, pw, ph)
+        normalized_bbox = _normalize_bbox_loose(base_bbox) if base_bbox else {"x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0}
+        if normalized_bbox:
+            clip_rect = fitz.Rect(
+                normalized_bbox["x1"] * pw,
+                normalized_bbox["y1"] * ph,
+                normalized_bbox["x2"] * pw,
+                normalized_bbox["y2"] * ph,
+            )
+
+        render_dpi = max(96, min(int(dpi or 220), 300))
+        mat = fitz.Matrix(render_dpi / 72, render_dpi / 72)
+        pix = page.get_pixmap(matrix=mat, clip=clip_rect)
+        img_bytes = pix.tobytes("jpeg", 90)
+        doc.close()
+        return {
+            "image_base64": f"data:image/jpeg;base64,{base64.b64encode(img_bytes).decode('ascii')}",
+            "page": safe_idx,
+            "page_count": page_count,
+            "base_bbox": normalized_bbox,
+            "width": pix.width,
+            "height": pix.height,
+        }
+    except Exception as e:
+        return {"error": f"Page render failed: {e}"}
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+@app.route("/api/discover/figure/manual-bbox", methods=["POST"])
+@login_required
+def api_discover_figure_manual_bbox():
+    """Persist a user-tuned manual bounding box for a discovery figure."""
+    data = request.get_json(silent=True) or {}
+    pdf_url = (data.get("pdf_url") or "").strip()
+    request_id = (data.get("request_id") or "").strip()
+    page = data.get("page")
+    manual_bbox = _normalize_manual_bbox(data.get("manual_bbox"))
+    if not pdf_url:
+        return jsonify({"error": "pdf_url is required"}), 400
+    if manual_bbox is None:
+        return jsonify({"error": "manual_bbox must be normalized 0..1 and at least 5% width/height"}), 400
+
+    verdict = "manual"
+
+    try:
+        page_num = int(page) if page is not None else None
+    except (TypeError, ValueError):
+        page_num = None
+
+    save_figure_feedback({
+        "request_id": request_id,
+        "pdf_url": pdf_url,
+        "page": page_num,
+        "bbox": manual_bbox,
+        "verdict": verdict,
+        "notes": (data.get("notes") or "")[:240],
+        "model": data.get("model") or "gpt-4o",
+        "bbox_source": "manual",
+    })
+
+    summary = get_figure_feedback_summary(pdf_url)
+    return jsonify({
+        "ok": True,
+        "bbox_validated": True,
+        "bbox": manual_bbox,
+        "summary": summary,
+    })
+
+
+@app.route("/api/discover/pdf-page", methods=["POST"])
+@login_required
+def api_discover_pdf_page():
+    """Render a specific paper page (or page region) for modal editing."""
+    data = request.get_json(silent=True) or {}
+    pdf_url = (data.get("pdf_url") or "").strip()
+    if not pdf_url:
+        return jsonify({"error": "pdf_url is required"}), 400
+
+    normalized_url = _normalize_discovery_pdf_url(pdf_url)
+    result = _extract_page_image_from_url(
+        normalized_url,
+        data.get("page", 0),
+        base_bbox=data.get("base_bbox"),
+        dpi=data.get("dpi", 220),
+    )
+    if result.get("error"):
+        return jsonify({"error": result.get("error")}), 502
+    return jsonify(result)
 
 
 # ── REST API: AI-Powered Discovery ──────────────────────────────────────────
@@ -508,6 +789,281 @@ _DISCOVERY_QUERIES = [
     "Nvidia next generation GPU architecture AI HPC accelerator interconnect",
 ]
 _discovery_query_index = 0
+_index_lock = threading.Lock()
+_RANK_MAX_CANDIDATES = 12
+_RANK_LOG_SNIPPET_CHARS = 700
+_last_index_refresh = 0.0
+_INDEX_REFRESH_SECONDS = 12 * 60 * 60
+_DISCOVERY_PROGRESS_LOCK = threading.Lock()
+_DISCOVERY_PROGRESS = {}
+
+# CORE Paper Repository token relevance controls.
+_CORE_ENABLE_TOKEN_FILTER = True
+_CORE_TOKEN_FILTER_MODE = "soft"  # soft | off
+_CORE_MIN_TOKEN_MATCH_RATIO = 0.34
+_CORE_MIN_TOKEN_MATCH_COUNT = 1
+
+
+def _default_discovery_progress():
+    return {
+        "stage": "idle",
+        "active": False,
+        "processed": 0,
+        "total": 0,
+        "found": 0,
+        "source_counts": {"core-pr": 0, "openalex": 0, "arxiv": 0},
+        "message": "Ready",
+        "query": "",
+        "updated_at": 0.0,
+    }
+
+
+def _set_discovery_progress(user_key, **updates):
+    with _DISCOVERY_PROGRESS_LOCK:
+        current = dict(_DISCOVERY_PROGRESS.get(user_key) or _default_discovery_progress())
+        current.update(updates)
+        current["updated_at"] = time.time()
+        _DISCOVERY_PROGRESS[user_key] = current
+        return dict(current)
+
+
+def _get_discovery_progress(user_key):
+    with _DISCOVERY_PROGRESS_LOCK:
+        return dict(_DISCOVERY_PROGRESS.get(user_key) or _default_discovery_progress())
+
+
+def _count_source_counts(papers):
+    counts = {"core-pr": 0, "openalex": 0, "arxiv": 0}
+    for paper in papers or []:
+        source = (paper.get("source") or "").strip().lower()
+        if source in counts:
+            counts[source] += 1
+    return counts
+
+_RANKING_TEAMS = {
+    "oie": "OIE - AI on GPU Optimization",
+    "e2o": "E2O - Network, Switch, Optical",
+    "ai_on_ia": "AI on iA - Agentic and Head Node CPU Optimization",
+    "hickory_delta": "Hickory Delta - Cache, Reliability, Wafer Scale",
+}
+
+_ARCH_SCORE_WEIGHTS = {
+    "compute_arch_fit": 0.24,
+    "memory_hierarchy_impact": 0.20,
+    "cluster_scalability": 0.20,
+    "implementation_readiness": 0.18,
+    "efficiency_tco": 0.18,
+}
+
+_ARCH_SCORE_KEYS = list(_ARCH_SCORE_WEIGHTS.keys())
+
+_TEAM_DEFAULT_CRITERIA_QUESTIONS = {
+    "oie": {
+        "compute_arch_fit": "Does this work show measurable gains in GPU utilization, throughput, or latency on modern accelerator stacks?",
+        "memory_hierarchy_impact": "How effectively does it reduce pressure in HBM, cache, KV cache, or activation memory footprints?",
+        "cluster_scalability": "Are results validated at realistic scale with multi-GPU or multi-node communication effects included?",
+        "implementation_readiness": "Does it provide deployable kernel, runtime, or scheduling details that can be implemented in production?",
+        "efficiency_tco": "What is the performance gain versus accuracy, power, complexity, and cost tradeoff?",
+    },
+    "e2o": {
+        "compute_arch_fit": "Does the proposal directly improve network, switch, or optical handling of AI workload traffic patterns?",
+        "memory_hierarchy_impact": "How does it impact data movement pressure between endpoints, buffers, and memory-adjacent network paths?",
+        "cluster_scalability": "How well does the architecture scale across pods and fabrics under all-reduce, all-to-all, or inference fan-out traffic?",
+        "implementation_readiness": "Does it address deployment constraints like protocol compatibility, observability, and failure handling?",
+        "efficiency_tco": "What is the expected datacenter-level performance-per-dollar and power-per-bit impact?",
+    },
+    "ai_on_ia": {
+        "compute_arch_fit": "Does this work improve CPU-side orchestration for agentic workflows such as tool calls, planning loops, or routing?",
+        "memory_hierarchy_impact": "Does it address head-node memory locality, serialization overhead, and I/O bottlenecks on CPU critical paths?",
+        "cluster_scalability": "How well does it handle bursty multi-agent loads while maintaining predictable end-to-end latency?",
+        "implementation_readiness": "Is the approach production-ready for debuggability, security boundaries, and fault isolation?",
+        "efficiency_tco": "Does it improve CPU-GPU partitioning efficiency and reduce orchestration overhead at cluster scale?",
+    },
+    "hickory_delta": {
+        "compute_arch_fit": "Does it introduce a meaningful architectural mechanism in cache, coherence, dataflow, or wafer-scale compute design?",
+        "memory_hierarchy_impact": "How strong is the paper's contribution to memory hierarchy efficiency or data movement reduction?",
+        "cluster_scalability": "Does the evaluation credibly address scale constraints such as interconnect limits, thermals, and manufacturability?",
+        "implementation_readiness": "Is the methodology rigorous enough for research translation, including realistic fault and sensitivity analysis?",
+        "efficiency_tco": "Does this direction have strong long-horizon impact potential versus complexity and risk?",
+    },
+}
+
+
+def _normalize_ranking_team(team_value):
+    raw = str(team_value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "oie": "oie",
+        "e2o": "e2o",
+        "ai_on_ia": "ai_on_ia",
+        "aionia": "ai_on_ia",
+        "ai_onia": "ai_on_ia",
+        "hickory_delta": "hickory_delta",
+        "hickorydelta": "hickory_delta",
+    }
+    team = aliases.get(raw, raw)
+    if team in _RANKING_TEAMS:
+        return team
+    return None
+
+
+def _default_slider_values_from_weights():
+    if not _ARCH_SCORE_WEIGHTS:
+        return {}
+    max_w = max(_ARCH_SCORE_WEIGHTS.values()) or 1.0
+    sliders = {}
+    for key in _ARCH_SCORE_KEYS:
+        raw = _ARCH_SCORE_WEIGHTS.get(key, 0.0)
+        if raw <= 0:
+            sliders[key] = 0.0
+            continue
+        scaled = (raw / max_w) * 10.0
+        sliders[key] = round(max(1.0, min(10.0, scaled)), 1)
+    return sliders
+
+
+_SESSION_RANKING_LOCK = threading.Lock()
+_SESSION_CRITERIA_QUESTIONS_BY_TEAM = {
+    team_id: dict(_TEAM_DEFAULT_CRITERIA_QUESTIONS[team_id])
+    for team_id in _RANKING_TEAMS.keys()
+}
+_SESSION_CRITERIA_SLIDERS_BY_TEAM = {
+    team_id: _default_slider_values_from_weights()
+    for team_id in _RANKING_TEAMS.keys()
+}
+
+
+def _reset_session_ranking_criteria(team_id=None):
+    with _SESSION_RANKING_LOCK:
+        if team_id:
+            _SESSION_CRITERIA_QUESTIONS_BY_TEAM[team_id] = dict(_TEAM_DEFAULT_CRITERIA_QUESTIONS[team_id])
+            _SESSION_CRITERIA_SLIDERS_BY_TEAM[team_id] = _default_slider_values_from_weights()
+            return
+        for tid in _RANKING_TEAMS.keys():
+            _SESSION_CRITERIA_QUESTIONS_BY_TEAM[tid] = dict(_TEAM_DEFAULT_CRITERIA_QUESTIONS[tid])
+            _SESSION_CRITERIA_SLIDERS_BY_TEAM[tid] = _default_slider_values_from_weights()
+
+
+def _get_session_ranking_config(team_id):
+    with _SESSION_RANKING_LOCK:
+        keys = list(_ARCH_SCORE_KEYS)
+        team_questions = _SESSION_CRITERIA_QUESTIONS_BY_TEAM.get(team_id) or dict(_TEAM_DEFAULT_CRITERIA_QUESTIONS[team_id])
+        team_sliders = _SESSION_CRITERIA_SLIDERS_BY_TEAM.get(team_id) or _default_slider_values_from_weights()
+        sliders = {k: float(team_sliders.get(k, 0.0)) for k in keys}
+        slider_sum = sum(v for v in sliders.values() if v > 0)
+        if slider_sum <= 0:
+            equal = 1.0 / len(keys) if keys else 0.0
+            weights = {k: equal for k in keys}
+        else:
+            weights = {k: (sliders[k] / slider_sum if sliders[k] > 0 else 0.0) for k in keys}
+        questions = {k: (team_questions.get(k) or _TEAM_DEFAULT_CRITERIA_QUESTIONS[team_id].get(k, k)) for k in keys}
+    return {
+        "team": team_id,
+        "team_label": _RANKING_TEAMS.get(team_id, team_id),
+        "keys": keys,
+        "questions": questions,
+        "sliders": sliders,
+        "weights": weights,
+    }
+
+
+@app.route("/api/discover/ranking-criteria", methods=["GET"])
+@login_required
+def api_discover_ranking_criteria():
+    """Return question text and weights used by architecture ranking."""
+    team_id = _normalize_ranking_team(request.args.get("team"))
+    if not team_id:
+        return jsonify({"error": "team is required and must be one of: oie, e2o, ai_on_ia, hickory_delta"}), 400
+
+    cfg = _get_session_ranking_config(team_id)
+    criteria = []
+    for key in cfg["keys"]:
+        criteria.append({
+            "key": key,
+            "question": cfg["questions"].get(key, key.replace("_", " ").capitalize()),
+            "slider": round(float(cfg["sliders"].get(key, 0.0)), 1),
+            "weight": cfg["weights"].get(key, 0.0),
+            "weight_percent": round(cfg["weights"].get(key, 0.0) * 100, 1),
+        })
+    resp = jsonify({"team": team_id, "team_label": cfg["team_label"], "criteria": criteria})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.route("/api/discover/ranking-criteria", methods=["POST"])
+@login_required
+def api_update_discover_ranking_criteria():
+    """Update session ranking criteria questions and slider values."""
+    data = request.get_json(silent=True) or {}
+    team_id = _normalize_ranking_team(data.get("team"))
+    if not team_id:
+        return jsonify({"error": "team is required and must be one of: oie, e2o, ai_on_ia, hickory_delta"}), 400
+
+    if data.get("reset_defaults"):
+        _reset_session_ranking_criteria(team_id)
+        cfg = _get_session_ranking_config(team_id)
+        criteria = []
+        for key in cfg["keys"]:
+            criteria.append({
+                "key": key,
+                "question": cfg["questions"].get(key, key),
+                "slider": round(float(cfg["sliders"].get(key, 0.0)), 1),
+                "weight": cfg["weights"].get(key, 0.0),
+                "weight_percent": round(cfg["weights"].get(key, 0.0) * 100, 1),
+            })
+        resp = jsonify({"team": team_id, "team_label": cfg["team_label"], "criteria": criteria})
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
+
+    items = data.get("criteria")
+    if not isinstance(items, list) or not items:
+        return jsonify({"error": "criteria list is required"}), 400
+
+    allowed_keys = set(_ARCH_SCORE_KEYS)
+    with _SESSION_RANKING_LOCK:
+        team_questions = _SESSION_CRITERIA_QUESTIONS_BY_TEAM.setdefault(team_id, dict(_TEAM_DEFAULT_CRITERIA_QUESTIONS[team_id]))
+        team_sliders = _SESSION_CRITERIA_SLIDERS_BY_TEAM.setdefault(team_id, _default_slider_values_from_weights())
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            if key not in allowed_keys:
+                continue
+
+            if "question" in item:
+                q = str(item.get("question") or "").strip()
+                if q:
+                    team_questions[key] = q[:300]
+
+            if "slider" in item:
+                try:
+                    slider = float(item.get("slider"))
+                except (TypeError, ValueError):
+                    slider = team_sliders.get(key, 0.0)
+                team_sliders[key] = max(0.0, min(10.0, round(slider, 1)))
+
+    cfg = _get_session_ranking_config(team_id)
+    criteria = []
+    for key in cfg["keys"]:
+        criteria.append({
+            "key": key,
+            "question": cfg["questions"].get(key, key),
+            "slider": round(float(cfg["sliders"].get(key, 0.0)), 1),
+            "weight": cfg["weights"].get(key, 0.0),
+            "weight_percent": round(cfg["weights"].get(key, 0.0) * 100, 1),
+        })
+    resp = jsonify({"ok": True, "team": team_id, "team_label": cfg["team_label"], "criteria": criteria})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.route("/api/discover/progress", methods=["GET"])
+@login_required
+def api_discover_progress():
+    user_key = str(current_user.get_id() or getattr(current_user, "username", "anon"))
+    return jsonify(_get_discovery_progress(user_key))
 
 # ── Azure OpenAI config loader ──────────────────────────────────────────────
 
@@ -567,64 +1123,38 @@ def _render_pdf_pages(pdf_path, dpi=150, max_pages=20):
     return pages
 
 
-def _render_single_page(pdf_path, page_num, dpi=250):
-    """Render a single PDF page at higher DPI. Returns JPEG bytes."""
-    doc = fitz.open(pdf_path)
-    page = doc[min(page_num, len(doc) - 1)]
-    mat = fitz.Matrix(dpi / 72, dpi / 72)
-    pix = page.get_pixmap(matrix=mat)
-    data = pix.tobytes("jpeg", 90)
-    doc.close()
-    return data
+def _pdf_has_visual_content(pdf_path, max_pages=10):
+    """Best-effort check for non-text visual content in a PDF."""
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return None
+
+    try:
+        for i in range(min(len(doc), max_pages)):
+            page = doc[i]
+            image_count = len(page.get_images(full=True) or [])
+            drawing_count = len(page.get_drawings() or [])
+            if image_count > 0 or drawing_count > 10:
+                return True
+        return False
+    finally:
+        doc.close()
 
 
-def _crop_figure_from_page(pdf_path, page_num, client, deployment):
+def _crop_figure_from_page(pdf_path, page_num, client, deployment, feedback_summary=None):
     """Extract the best figure image from a PDF page.
 
     Strategy (in order):
-    1. Use PyMuPDF to extract embedded images from the page.  Pick the
-       largest one (by pixel area) that isn't a tiny icon.
-    2. If no suitable embedded image is found, fall back to a GPT-4o
-       vision call to get a bounding box, then crop the rendered page.
-    3. If that also fails, return the full page.
+    1. Use GPT-4o vision to get a bounding box around the most important
+       graphical content on the page, then crop the rendered page.
+    2. If that fails, return the full page.
     """
     doc = fitz.open(pdf_path)
     page = doc[min(page_num, len(doc) - 1)]
 
-    # ── Strategy 1: extract embedded images directly ──────────────
-    best_img_bytes = None
-    best_area = 0
-    try:
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            base_image = doc.extract_image(xref)
-            if not base_image or not base_image.get("image"):
-                continue
-            w, h = base_image.get("width", 0), base_image.get("height", 0)
-            area = w * h
-            # Skip tiny images (icons, logos, bullets) — require at least 150×150
-            if w < 150 or h < 150:
-                continue
-            if area > best_area:
-                best_area = area
-                best_img_bytes = base_image["image"]
-    except Exception as e:
-        print(f"  [Image] Embedded image extraction failed: {e}")
-
-    if best_img_bytes and best_area >= 100_000:
-        doc.close()
-        print(f"  [Image] Extracted embedded image ({best_area} px²) from page {page_num}")
-        # Re-encode as JPEG if needed (embedded images can be PNG, JPEG, etc.)
-        try:
-            pix = fitz.Pixmap(best_img_bytes)
-            if pix.alpha:
-                pix = fitz.Pixmap(fitz.csRGB, pix)  # drop alpha channel
-            return pix.tobytes("jpeg", 92)
-        except Exception:
-            return best_img_bytes
-
-    # ── Strategy 2: GPT-4o vision bounding box ────────────────────
-    print(f"  [Image] No large embedded image on page {page_num}, trying GPT-4o bbox")
+    # GPT-4o vision bounding box ───────────────────────────────────
+    print(f"  [Image] Using GPT-4o bbox on page {page_num}")
     medium_dpi = 150
     mat = fitz.Matrix(medium_dpi / 72, medium_dpi / 72)
     pix = page.get_pixmap(matrix=mat)
@@ -646,6 +1176,12 @@ def _crop_figure_from_page(pdf_path, page_num, client, deployment):
         )},
         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
     ]
+
+    if feedback_summary and feedback_summary.get("bad_count", 0) > feedback_summary.get("good_count", 0):
+        content[0]["text"] += (
+            " Prior feedback indicates earlier crops were often too loose or included text. "
+            "Be stricter: tightly isolate only the diagram pixels and exclude captions/body text."
+        )
 
     bbox = None
     try:
@@ -679,7 +1215,16 @@ def _crop_figure_from_page(pdf_path, page_num, client, deployment):
 
     result = pix.tobytes("jpeg", 92)
     doc.close()
-    return result
+    bbox_payload = None
+    if bbox:
+        x1, y1, x2, y2 = bbox
+        bbox_payload = {
+            "x1": round(x1, 4),
+            "y1": round(y1, 4),
+            "x2": round(x2, 4),
+            "y2": round(y2, 4),
+        }
+    return result, bbox_payload
 
 
 def _extract_best_figure(pdf_path, paper_id):
@@ -728,7 +1273,7 @@ def _extract_best_figure(pdf_path, paper_id):
         best_page = min(1, len(pages) - 1)
 
     # Crop just the figure from the chosen page and save
-    hq_bytes = _crop_figure_from_page(pdf_path, best_page, client, deployment)
+    hq_bytes, _ = _crop_figure_from_page(pdf_path, best_page, client, deployment)
     safe_id = re.sub(r'[^a-z0-9_-]', '_', paper_id)
     filename = f"{safe_id}_figure.jpg"
     save_path = os.path.join(GENERATED_IMG_DIR, filename)
@@ -745,14 +1290,14 @@ def _generate_infographic(paper_dict, paper_id):
         return None
 
     prompt = (
-        f"Create a clean, professional technical infographic for an academic paper titled "
+        "Generate a detailed high-resolution JPEG Infographic in landscape mode with a white background "
+        "that illustrates the primary point of emphasis of the white paper titled "
         f"\"{paper_dict.get('title', 'AI Research Paper')}\". "
-        f"Key points to visualize: {paper_dict.get('summary', '')[:300]}. "
+        f"Key contribution: {paper_dict.get('summary', '')[:300]}. "
         f"Datacenter relevance: {paper_dict.get('datacenter', '')[:200]}. "
         f"Key metrics: {paper_dict.get('metrics', '')[:150]}. "
-        f"Style: modern flat design, datacenter/AI theme, blue and teal color palette, "
-        f"clean icons, minimal text, suitable as a thumbnail for an academic paper portal. "
-        f"Do NOT include any text that looks like a title or heading."
+        "The audience for the infographic is AI System Architects, Hardware & Software Engineers, "
+        "and Technical Leaders. Be sure to include in the diagram enough detailed specifics."
     )
 
     safe_id = re.sub(r'[^a-z0-9_-]', '_', paper_id)
@@ -794,29 +1339,56 @@ def _generate_infographic(paper_dict, paper_id):
 
 
 def _extract_figure_from_url(pdf_url):
-    """Download a PDF from URL, extract best figure, return base64 data URL or None."""
+    """Download a PDF from URL, extract best figure, return base64 + extraction metadata."""
     client = _get_azure_client()
     if client is None:
-        return None
+        return {
+            "status": "error",
+            "reason": "ai_unavailable",
+            "message": "Figure extraction AI is not configured.",
+        }
 
     # Download PDF to temp file
     try:
         r = http_requests.get(pdf_url, timeout=30, proxies=_proxies, stream=True)
         if not r.ok:
-            return None
+            return {
+                "status": "error",
+                "reason": "network_error",
+                "message": f"Could not download PDF (HTTP {r.status_code}).",
+            }
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             for chunk in r.iter_content(8192):
                 tmp.write(chunk)
             tmp_path = tmp.name
     except Exception as e:
         print(f"  [Image] PDF download failed: {e}")
-        return None
+        return {
+            "status": "error",
+            "reason": "network_error",
+            "message": f"PDF download failed: {e}",
+        }
 
     try:
         deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
+        feedback_summary = get_figure_feedback_summary(pdf_url)
         pages = _render_pdf_pages(tmp_path, dpi=100, max_pages=10)
         if not pages:
-            return None
+            return {
+                "status": "none",
+                "reason": "no_pages",
+                "message": "No readable pages were found in this document.",
+                "model": deployment,
+            }
+
+        has_visual_content = _pdf_has_visual_content(tmp_path, max_pages=10)
+        if has_visual_content is False:
+            return {
+                "status": "none",
+                "reason": "text_only",
+                "message": "No figure-like visual content was detected in this paper.",
+                "model": deployment,
+            }
 
         content = [{"type": "text", "text": (
             "You are analyzing pages from an academic paper PDF. "
@@ -844,124 +1416,798 @@ def _extract_figure_from_url(pdf_url):
         except Exception:
             best_page = min(1, len(pages) - 1)
 
-        hq_bytes = _crop_figure_from_page(tmp_path, best_page, client, deployment)
+        hq_bytes, bbox_payload = _crop_figure_from_page(
+            tmp_path,
+            best_page,
+            client,
+            deployment,
+            feedback_summary=feedback_summary,
+        )
         b64_str = base64.b64encode(hq_bytes).decode("ascii")
-        return f"data:image/jpeg;base64,{b64_str}"
+        status = "found" if bbox_payload else "uncertain"
+        reason = "detected_figure" if bbox_payload else "low_confidence"
+        message = (
+            "Figure located and extracted."
+            if bbox_payload
+            else "A candidate region was extracted, but confidence is low."
+        )
+        confidence = 0.85 if bbox_payload else 0.4
+        outcome = {
+            "status": status,
+            "reason": reason,
+            "message": message,
+            "figure_base64": f"data:image/jpeg;base64,{b64_str}",
+            "page": int(best_page),
+            "bbox": bbox_payload,
+            "model": deployment,
+            "confidence": confidence,
+        }
+        print(
+            f"  [Image] Discovery figure outcome: status={outcome['status']}, "
+            f"reason={outcome['reason']}, page={outcome.get('page')}, bbox_found={bool(outcome.get('bbox'))}"
+        )
+        return outcome
+    except Exception as e:
+        print(f"  [Image] Discovery figure extraction failed: {e}")
+        return {
+            "status": "error",
+            "reason": "extract_failed",
+            "message": f"Figure extraction failed: {e}",
+        }
     finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
 
-# ── LLM paper recommendation ───────────────────────────────────────────────
 
-_LLM_SYSTEM_PROMPT = """You are an expert AI research librarian specializing in datacenter architecture, AI/ML systems, GPU/accelerator design, large language model infrastructure, and high-performance computing.
+def _make_external_id(source, title, year, suffix=""):
+    token = f"{title}-{year}-{suffix or source}"
+    return f"{source}-{slugify(token)}"
 
-Your task: Given a research topic, recommend exactly 10 highly relevant, real academic papers or technical reports. Prioritize:
-1. Seminal papers that system architects and datacenter engineers must know
-2. Recent breakthrough papers (2023-2026) with measurable impact
-3. Papers from top venues (NeurIPS, ICML, ISCA, MICRO, ASPLOS, MLSys, arXiv)
-4. Papers with concrete datacenter/infrastructure implications
 
-Return a JSON object with a single key "papers" containing an array of exactly 10 objects. Each object must have:
-- "title": exact paper title (be precise — this will be used for lookup)
-- "authors": comma-separated author names (first 3-4 authors)
-- "year": publication year (integer)
-- "summary": 2-3 sentence technical summary focusing on the key contribution
-- "datacenter_relevance": 1 sentence on why this matters for datacenter architects
-- "key_metrics": specific quantitative results or impact metrics from the paper
+def _paper_to_external_record(*, source, title, authors, year, preview, summary, datacenter, metrics,
+                              link, pdf_url="", citation_count=0, sources=None, indexed_query=""):
+    sources = sources or [source]
+    canonical_title = (title or "Untitled discovery paper").strip()
+    safe_year = int(year or datetime.datetime.now().year)
+    return {
+        "id": _make_external_id(source, canonical_title, safe_year),
+        "title": canonical_title,
+        "authors": authors or "",
+        "year": safe_year,
+        "preview": preview or (summary[:148] if summary else ""),
+        "summary": summary or preview or "",
+        "datacenter": datacenter or _infer_datacenter_impact(f"{canonical_title} {summary or preview or ''}"),
+        "metrics": metrics or _infer_key_result(summary or preview or canonical_title, safe_year),
+        "source": source,
+        "sources": sources,
+        "link": link or pdf_url or "",
+        "pdf_url": pdf_url or "",
+        "citation_count": int(citation_count or 0),
+        "verified_by_ai": True,
+        "indexed_query": indexed_query,
+        "_pubDate": f"{safe_year}-01-01",
+        "isDiscovery": True,
+    }
 
-Only recommend papers you are highly confident actually exist. Do not fabricate titles."""
 
-def _llm_recommend_papers(query):
-    """Ask Azure OpenAI for paper recommendations. Returns list of dicts or empty list."""
-    client = _get_azure_client()
-    if client is None:
-        return []
-    deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
-    try:
-        completion = client.chat.completions.create(
-            model=deployment,
-            messages=[
-                {"role": "system", "content": _LLM_SYSTEM_PROMPT},
-                {"role": "user", "content": f"Recommend 10 papers on: {query}"},
-            ],
-            max_tokens=4096,
-            temperature=0.7,
-            top_p=0.95,
-            response_format={"type": "json_object"},
-        )
-        raw = completion.choices[0].message.content
-        data = json.loads(raw)
-        papers = data.get("papers", [])
-        if isinstance(papers, list):
-            return papers[:10]
-    except Exception as e:
-        print(f"  [AI Discovery] LLM error: {e}")
-    return []
+_SEARCH_STOPWORDS = {
+    "a", "an", "and", "at", "by", "for", "from", "in", "into", "of",
+    "on", "or", "the", "to", "via", "with", "using",
+}
 
-# ── Semantic Scholar validation ─────────────────────────────────────────────
 
-def _validate_with_semantic_scholar(llm_papers):
-    """Enrich LLM-recommended papers with real links from Semantic Scholar."""
-    enriched = []
-    for paper in llm_papers:
-        title = paper.get("title", "")
-        if not title:
-            enriched.append(paper)
+def _query_keyword_tokens(query_text, limit=6):
+    tokens = []
+    seen = set()
+    for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9+\-]*", (query_text or "").lower()):
+        if token in _SEARCH_STOPWORDS or len(token) < 2 or token in seen:
             continue
-        try:
+        seen.add(token)
+        tokens.append(token)
+        if len(tokens) >= limit:
+            break
+    return tokens
+
+
+def _query_keyword_text(query_text):
+    return " ".join(_query_keyword_tokens(query_text))
+
+
+def _dedupe_strings(values):
+    seen = set()
+    deduped = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def _token_overlap_stats(required_tokens, search_corpus):
+    if not required_tokens:
+        return {
+            "match_count": 0,
+            "total_tokens": 0,
+            "match_ratio": 1.0,
+            "matched_tokens": [],
+        }
+    matched_tokens = [token for token in required_tokens if token in search_corpus]
+    match_count = len(matched_tokens)
+    total_tokens = len(required_tokens)
+    return {
+        "match_count": match_count,
+        "total_tokens": total_tokens,
+        "match_ratio": (match_count / total_tokens) if total_tokens else 1.0,
+        "matched_tokens": matched_tokens,
+    }
+
+
+def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
+    results = []
+    required_tokens = _query_keyword_tokens(query_text)
+    search_variants = _dedupe_strings([
+        _query_keyword_text(query_text),
+        (query_text or "").strip(),
+    ])
+    print(
+        f"[Index] [CORE] Starting: query='{query_text}', year=[{year_from},{year_to}], "
+        f"variants={len(search_variants)}, mode={_CORE_TOKEN_FILTER_MODE}, required_tokens={required_tokens}"
+    )
+
+    soft_mode_enabled = bool(_CORE_ENABLE_TOKEN_FILTER and _CORE_TOKEN_FILTER_MODE == "soft")
+    ratio_threshold = max(0.0, min(1.0, float(_CORE_MIN_TOKEN_MATCH_RATIO)))
+    min_count_threshold = max(1, int(_CORE_MIN_TOKEN_MATCH_COUNT))
+
+    for variant_idx, search_text in enumerate(search_variants, 1):
+        if not search_text:
+            continue
+
+        print(f"[Index] [CORE] Variant {variant_idx}: '{search_text}'")
+        r = http_requests.get(
+            "https://api.core.ac.uk/v3/search/works",
+            params={
+                "q": search_text,
+                "limit": limit,
+                "offset": 0,
+            },
+            timeout=15,
+            proxies=_proxies,
+        )
+        if not r.ok:
+            print(f"[Index] [CORE] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
+            continue
+
+        payload = r.json() or {}
+        raw_data = payload.get("results", [])
+        print(f"[Index] [CORE] Variant {variant_idx}: Raw API response: {len(raw_data)} papers")
+        year_dropped = 0
+        token_dropped = 0
+        variant_passed = 0
+        accepted_ratio_sum = 0.0
+        dropped_samples = []
+
+        for entry in raw_data:
+            title = (entry.get("title") or "").strip()
+            if not title:
+                continue
+
+            year = int(entry.get("yearPublished") or datetime.datetime.now().year)
+            if year < year_from or year > year_to:
+                year_dropped += 1
+                continue
+
+            authors = ", ".join(
+                a.get("name", "") if isinstance(a, dict) else str(a)
+                for a in (entry.get("authors") or [])[:4]
+            )
+            summary = _clean_abstract(entry.get("abstract") or "")
+            journals = entry.get("journals") or []
+            venue = ""
+            if journals and isinstance(journals[0], dict):
+                venue = (journals[0].get("title") or "").strip()
+            search_corpus = " ".join([title, authors, summary, venue]).lower()
+            overlap = _token_overlap_stats(required_tokens, search_corpus)
+
+            if soft_mode_enabled and overlap["total_tokens"] > 0:
+                ratio_needed = int(overlap["total_tokens"] * ratio_threshold + 0.9999)
+                min_needed = max(min_count_threshold, ratio_needed)
+                if overlap["total_tokens"] <= 2:
+                    min_needed = 1
+                if overlap["match_count"] < min_needed:
+                    token_dropped += 1
+                    if len(dropped_samples) < 3:
+                        dropped_samples.append(
+                            f"'{title[:60]}' ({overlap['match_count']}/{overlap['total_tokens']})"
+                        )
+                    continue
+
+            doi = (entry.get("doi") or "").strip()
+            download_url = (entry.get("downloadUrl") or "").strip()
+            links = entry.get("links") or []
+            display_url = ""
+            if isinstance(links, list):
+                for candidate in links:
+                    if isinstance(candidate, dict) and candidate.get("type") == "display":
+                        display_url = (candidate.get("url") or "").strip()
+                        break
+            pdf_url = _normalize_discovery_pdf_url(download_url)
+            link = pdf_url or (f"https://doi.org/{doi}" if doi else "") or display_url or ""
+            results.append(_paper_to_external_record(
+                source="core-pr",
+                title=title,
+                authors=authors or "CORE Paper Repository",
+                year=year,
+                preview=summary[:148],
+                summary=summary,
+                datacenter=_infer_datacenter_impact(f"{title} {summary}"),
+                metrics=_infer_key_result(summary or title, year),
+                link=link,
+                pdf_url=pdf_url,
+                citation_count=entry.get("citationCount", 0),
+                sources=["core-pr"],
+                indexed_query=search_text,
+            ))
+            variant_passed += 1
+            accepted_ratio_sum += overlap["match_ratio"]
+
+        avg_ratio = (accepted_ratio_sum / variant_passed) if variant_passed else 0.0
+        print(
+            f"[Index] [CORE] Variant {variant_idx}: {len(raw_data)} raw → "
+            f"{year_dropped} year-filtered → {token_dropped} token-filtered → {variant_passed} passed "
+            f"(avg_match_ratio={avg_ratio:.2f})"
+        )
+        if dropped_samples:
+            print(f"[Index] [CORE] Variant {variant_idx} token drops (sample): {', '.join(dropped_samples)}")
+    print(f"[Index] [CORE] Complete: {len(results)} total papers from all variants")
+    return results
+
+
+def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
+    try:
+        oa_filter = f"publication_date:>{year_from-1}-12-31,publication_date:<{year_to+1}-01-01"
+        results = []
+        search_variants = _dedupe_strings([
+            _query_keyword_text(query_text),
+            (query_text or "").strip(),
+        ])
+        print(f"[Index] [OA] Starting: query='{query_text}', year=[{year_from},{year_to}], variants={len(search_variants)}")
+
+        for variant_idx, search_text in enumerate(search_variants, 1):
+            if not search_text:
+                continue
+            print(f"[Index] [OA] Variant {variant_idx}: '{search_text}'")
+
             r = http_requests.get(
-                "https://api.semanticscholar.org/graph/v1/paper/search",
-                params={
-                    "query": title,
-                    "limit": 3,
-                    "fields": "title,authors,year,abstract,externalIds,openAccessPdf,url,citationCount",
-                },
-                timeout=10,
+                "https://api.openalex.org/works",
+                params={"search": search_text, "sort": "publication_date:desc",
+                        "filter": oa_filter, "per-page": str(limit)},
+                headers={"Accept": "application/json"},
+                timeout=15,
                 proxies=_proxies,
             )
-            if r.ok:
-                results = r.json().get("data", [])
-                # Find best match by title similarity
-                best = None
-                title_lower = title.lower().strip()
-                for result in results:
-                    result_title = (result.get("title") or "").lower().strip()
-                    if result_title == title_lower or title_lower in result_title or result_title in title_lower:
-                        best = result
-                        break
-                if best is None and results:
-                    best = results[0]  # fall back to top result
-                if best:
-                    # Enrich with real data
-                    oa_pdf = best.get("openAccessPdf") or {}
-                    ext_ids = best.get("externalIds") or {}
-                    arxiv_id = ext_ids.get("ArXiv")
-                    doi = ext_ids.get("DOI")
-                    link = (oa_pdf.get("url")
-                            or (f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None)
-                            or (f"https://doi.org/{doi}" if doi else None)
-                            or best.get("url")
-                            or "")
-                    paper["link"] = link
-                    paper["citation_count"] = best.get("citationCount", 0)
-                    if best.get("abstract"):
-                        paper["abstract"] = best["abstract"][:400]
-                    if best.get("year"):
-                        paper["year"] = best["year"]
-                    # Use Semantic Scholar's canonical title if very close
-                    if best.get("title"):
-                        paper["title"] = best["title"]
-                    if best.get("authors"):
-                        paper["authors"] = ", ".join(
-                            a.get("name", "") for a in best["authors"][:4]
+            if not r.ok:
+                print(f"[Index] [OA] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
+                continue
+
+            raw_data = r.json().get("results", [])
+            print(f"[Index] [OA] Variant {variant_idx}: Raw API response: {len(raw_data)} papers")
+            year_dropped = 0
+            variant_passed = 0
+
+            for entry in raw_data:
+                title = (entry.get("title") or "").strip()
+                if not title:
+                    continue
+                pub_date = entry.get("publication_date", "")
+                year = int(pub_date[:4]) if pub_date else datetime.datetime.now().year
+                if year < year_from or year > year_to:
+                    year_dropped += 1
+                    continue
+                authorships = entry.get("authorships") or []
+                authors = ", ".join(a.get("author", {}).get("display_name", "") for a in authorships[:4])
+                link = (entry.get("open_access") or {}).get("oa_url") or entry.get("doi") or entry.get("primary_location", {}).get("landing_page_url") or ""
+                abstract = _clean_abstract(_reconstruct_abstract(entry.get("abstract_inverted_index")))
+                results.append(_paper_to_external_record(
+                    source="openalex",
+                    title=title,
+                    authors=authors or "OpenAlex",
+                    year=year,
+                    preview=(abstract[:148] if abstract else title[:148]),
+                    summary=abstract or title,
+                    datacenter=_infer_datacenter_impact(f"{title} {abstract}"),
+                    metrics=_infer_key_result(abstract or title, year),
+                    link=link,
+                    pdf_url=(entry.get("open_access") or {}).get("oa_url") or "",
+                    citation_count=entry.get("cited_by_count", 0),
+                    sources=["openalex"],
+                    indexed_query=search_text,
+                ))
+                variant_passed += 1
+            print(f"[Index] [OA] Variant {variant_idx}: {len(raw_data)} raw → {year_dropped} year-filtered → {variant_passed} passed")
+        print(f"[Index] [OA] Complete: {len(results)} total papers from all variants")
+        return results
+    except Exception as e:
+        print(f"[Index] [OA] Exception: {e}")
+        return []
+
+
+def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
+    try:
+        ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+        results = []
+        tokens = _query_keyword_tokens(query_text)
+        query_variants = _dedupe_strings([
+            " AND ".join(f"all:{token}" for token in tokens[:4]) if len(tokens) >= 2 else "",
+            f'all:"{query_text.strip()}"' if (query_text or "").strip() else "",
+            " OR ".join(f"all:{token}" for token in tokens[:4]) if len(tokens) >= 2 else "",
+        ])
+        print(f"[Index] [arXiv] Starting: query='{query_text}', tokens={tokens}, year=[{year_from},{year_to}], variants={len(query_variants)}")
+
+        for variant_idx, search_query in enumerate(query_variants, 1):
+            if not search_query:
+                continue
+            print(f"[Index] [arXiv] Variant {variant_idx}: '{search_query}'")
+
+            r = http_requests.get(
+                "http://export.arxiv.org/api/query",
+                params={
+                    "search_query": search_query,
+                    "start": 0,
+                    "max_results": limit,
+                    "sortBy": "submittedDate",
+                    "sortOrder": "descending",
+                },
+                timeout=20,
+                proxies=_proxies,
+            )
+            if not r.ok:
+                print(f"[Index] [arXiv] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
+                continue
+
+            root = ET.fromstring(r.text)
+            raw_data = root.findall("atom:entry", ns)
+            print(f"[Index] [arXiv] Variant {variant_idx}: Raw API response: {len(raw_data)} papers")
+            year_dropped = 0
+            variant_passed = 0
+
+            for entry in raw_data:
+                title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+                if not title:
+                    continue
+                published = entry.findtext("atom:published", default="", namespaces=ns)
+                year = int(published[:4]) if published else datetime.datetime.now().year
+                if year < year_from or year > year_to:
+                    year_dropped += 1
+                    continue
+                summary = _clean_abstract(entry.findtext("atom:summary", default="", namespaces=ns))
+                authors = ", ".join(
+                    a.findtext("atom:name", default="", namespaces=ns)
+                    for a in entry.findall("atom:author", ns)
+                ).strip(", ") or "arXiv"
+                arxiv_id = (entry.findtext("atom:id", default="", namespaces=ns) or "").rsplit("/", 1)[-1]
+                pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else ""
+                results.append(_paper_to_external_record(
+                    source="arxiv",
+                    title=title,
+                    authors=authors,
+                    year=year,
+                    preview=summary[:148],
+                    summary=summary,
+                    datacenter=_infer_datacenter_impact(f"{title} {summary}"),
+                    metrics=_infer_key_result(summary or title, year),
+                    link=pdf_url or entry.findtext("atom:id", default="", namespaces=ns) or "",
+                    pdf_url=pdf_url,
+                    citation_count=0,
+                    sources=["arxiv"],
+                    indexed_query=search_query,
+                ))
+                variant_passed += 1
+            print(f"[Index] [arXiv] Variant {variant_idx}: {len(raw_data)} raw → {year_dropped} year-filtered → {variant_passed} passed")
+        print(f"[Index] [arXiv] Complete: {len(results)} total papers from all variants")
+        return results
+    except Exception as e:
+        print(f"[Index] [arXiv] Exception: {e}")
+        return []
+
+
+def _safe_json_snippet(value, limit=_RANK_LOG_SNIPPET_CHARS):
+    try:
+        text = str(value or "")
+    except Exception:
+        text = ""
+    text = text.replace("\n", "\\n").replace("\r", "")
+    return text[:limit]
+
+def _extract_json_object_text(raw_text):
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("Empty LLM response content")
+
+    # Handle markdown fenced JSON blocks if the model includes formatting.
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\\s*```$", "", text)
+        text = text.strip()
+
+    if text.startswith("{") and text.endswith("}"):
+        return text
+
+    first = text.find("{")
+    last = text.rfind("}")
+    if first >= 0 and last > first:
+        return text[first:last + 1]
+
+    raise ValueError("No JSON object found in LLM response")
+
+
+def _fallback_criterion_score(criterion_key, candidate, query_text):
+    corpus = " ".join([
+        str(candidate.get("title", "") or ""),
+        str(candidate.get("summary", "") or ""),
+        str(candidate.get("datacenter", "") or ""),
+        str(candidate.get("metrics", "") or ""),
+        str(query_text or ""),
+    ]).lower()
+
+    token_map = {
+        "memory_hierarchy_impact": ["memory", "cache", "hbm", "dram", "bandwidth", "latency", "prefetch", "kv cache"],
+        "compute_arch_fit": ["gpu", "cpu", "soc", "tensor", "simd", "matrix", "throughput"],
+        "cluster_scalability": ["cluster", "distributed", "interconnect", "scale", "network", "datacenter"],
+        "implementation_readiness": ["benchmark", "code", "open source", "reproducible", "deployment", "production"],
+        "efficiency_tco": ["tco", "efficiency", "watt", "power", "latency", "cost", "inference"],
+    }
+    tokens = token_map.get(criterion_key, [])
+    if not tokens:
+        return max(0.0, min(5.0, _fallback_arch_score(candidate, query_text)))
+
+    hits = sum(1 for t in tokens if t in corpus)
+    # 0 hits -> 1.0, saturate near 5.0 as evidence accumulates.
+    return round(max(0.0, min(5.0, 1.0 + hits * 0.6)), 4)
+
+
+def _build_score_sequence(active_keys, score_breakdown):
+    seq = []
+    for idx, key in enumerate(active_keys):
+        try:
+            raw = float(score_breakdown.get(key, 0.0))
+        except (TypeError, ValueError):
+            raw = 0.0
+        seq.append({
+            "q": f"Q{idx + 1}",
+            "key": key,
+            "score": round(max(0.0, min(5.0, raw)), 4),
+            "max": 5,
+        })
+    return seq
+
+
+def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, team_id="oie", ranking_run_id=None):
+    cfg = _get_session_ranking_config(team_id)
+    active_keys = cfg["keys"]
+    active_weights = cfg["weights"]
+    active_questions = cfg["questions"]
+    ranking_run_id = str(ranking_run_id or time.time_ns())
+
+    client = _get_azure_client()
+    scored_candidates = candidates[:_RANK_MAX_CANDIDATES]
+    total_scored = len(scored_candidates)
+
+    if client is None or not candidates:
+        ranked = []
+        for c in candidates:
+            breakdown = {k: _fallback_criterion_score(k, c, query_text) for k in active_keys}
+            weighted_total = sum(breakdown.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
+            fallback_score = round(max(0.0, min(5.0, weighted_total)), 4)
+            copy = dict(c)
+            copy["score_breakdown"] = breakdown
+            copy["score_sequence"] = _build_score_sequence(active_keys, breakdown)
+            copy["total_score"] = fallback_score
+            copy["score_confidence"] = 0.4
+            copy["score_rationale"] = "Fallback scoring: AI unavailable."
+            ranked.append(copy)
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return sorted(ranked, key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)), reverse=True)
+
+    deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
+    payload = [
+        {
+            "title": c.get("title", ""),
+            "year": c.get("year", 0),
+            "source": c.get("source", ""),
+            "has_pdf": bool(c.get("pdf_url") or c.get("link")),
+            "summary": (c.get("summary") or c.get("preview") or "")[:110],
+            "datacenter": (c.get("datacenter") or "")[:80],
+        }
+        for c in scored_candidates
+    ]
+    payload_ids = [c["id"] for c in scored_candidates]
+
+    weighted_criteria = []
+    for key in active_keys:
+        try:
+            weight = float(active_weights.get(key, 0.0))
+        except (TypeError, ValueError):
+            weight = 0.0
+        if weight > 0.0:
+            weighted_criteria.append({
+                "key": key,
+                "weight": weight,
+                "question": active_questions.get(key, key),
+            })
+
+    if not weighted_criteria:
+        print("  [Rank] All criteria weights are zero; skipping LLM ranking.")
+        ranked = []
+        for c in candidates:
+            breakdown = {k: _fallback_criterion_score(k, c, query_text) for k in active_keys}
+            weighted_total = sum(breakdown.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
+            fallback_score = round(max(0.0, min(5.0, weighted_total)), 4)
+            copy = dict(c)
+            copy["score_breakdown"] = breakdown
+            copy["score_sequence"] = _build_score_sequence(active_keys, breakdown)
+            copy["total_score"] = fallback_score
+            copy["score_confidence"] = 0.4
+            copy["score_rationale"] = "Fallback scoring: weighted from criterion fallback scores."
+            ranked.append(copy)
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return sorted(ranked, key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)), reverse=True)
+
+    try:
+        print(
+            "  [Rank] Starting per-criterion scoring: "
+            f"query='{_safe_json_snippet(query_text, 120)}', "
+            f"candidates={len(payload)}, weighted_criteria={len(weighted_criteria)}"
+        )
+        by_id = {c["id"]: c for c in candidates}
+        payload_id_set = set(payload_ids)
+        score_by_id = {cid: {k: 0.0 for k in active_keys} for cid in by_id.keys()}
+        rationale_parts_by_id = {cid: [] for cid in by_id.keys()}
+        criterion_success = {item["key"]: False for item in weighted_criteria}
+        processed_papers = 0
+        for idx, paper_payload in enumerate(payload):
+            rid = payload_ids[idx]
+            for criterion in weighted_criteria:
+                key = criterion["key"]
+                question = criterion["question"]
+                weight = criterion["weight"]
+
+                print(
+                    "  [Rank] Criterion request: "
+                    f"key='{key}', weight={round(weight, 4)}, "
+                    f"question_len={len(str(question or ''))}, paper_idx={idx}"
+                )
+
+                prompt_payload = {
+                    "ranking_run_id": ranking_run_id,
+                    "query": query_text,
+                    "criterion": {
+                        "key": key,
+                        "question": question,
+                        "weight": weight,
+                        "scale": "0-5",
+                    },
+                    "output_contract": {
+                        "format": "json_object",
+                        "key": "score",
+                        "score_type": "number",
+                        "score_range": [0, 5],
+                    },
+                    "paper": paper_payload,
+                }
+
+                try:
+                    started = time.time()
+                    completion = client.chat.completions.create(
+                        model=deployment,
+                        messages=[
+                            {"role": "system", "content": (
+                                "You score one paper for one criterion. "
+                                "Return ONLY JSON with exactly one key: {\"score\": <number from 0 to 5>}. "
+                                "No markdown, no prose, no extra keys."
+                            )},
+                            {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
+                        ],
+                        max_tokens=40,
+                        temperature=0.0,
+                        extra_headers={
+                            "Cache-Control": "no-cache, no-store",
+                            "Pragma": "no-cache",
+                            "x-ms-client-request-id": str(uuid.uuid4()),
+                        },
+                        response_format={"type": "json_object"},
+                    )
+                    elapsed_ms = int((time.time() - started) * 1000)
+                    choice = completion.choices[0] if completion and completion.choices else None
+                    finish_reason = choice.finish_reason if choice else "unknown"
+                    raw_content = (choice.message.content if choice and choice.message else "") or ""
+
+                    data = None
+                    try:
+                        data = json.loads(_extract_json_object_text(raw_content))
+                    except Exception as parse_error:
+                        print(
+                            "  [Rank] JSON parse error (paper first pass): "
+                            f"key='{key}', paper_idx={idx}, error={parse_error}, snippet='{_safe_json_snippet(raw_content)}'"
                         )
+
+                        retry_completion = client.chat.completions.create(
+                            model=deployment,
+                            messages=[
+                                {"role": "system", "content": (
+                                    "Return strict JSON only in this exact shape: {\"score\": number}. "
+                                    "Score must be between 0 and 5. No extra keys."
+                                )},
+                                {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
+                            ],
+                            max_tokens=60,
+                            temperature=0.0,
+                            extra_headers={
+                                "Cache-Control": "no-cache, no-store",
+                                "Pragma": "no-cache",
+                                "x-ms-client-request-id": str(uuid.uuid4()),
+                            },
+                            response_format={"type": "json_object"},
+                        )
+                        retry_choice = retry_completion.choices[0] if retry_completion and retry_completion.choices else None
+                        retry_raw = (retry_choice.message.content if retry_choice and retry_choice.message else "") or ""
+                        data = json.loads(_extract_json_object_text(retry_raw))
+
+                    try:
+                        num = float((data or {}).get("score", 0.0))
+                    except (TypeError, ValueError):
+                        num = 0.0
+                    num = max(0.0, min(5.0, num))
+                    score_by_id[rid][key] = num
+                    criterion_success[key] = True
+
+                    print(
+                        "  [Rank] Paper scored: "
+                        f"key='{key}', paper_idx={idx}, finish_reason={finish_reason}, elapsed_ms={elapsed_ms}, score={num}"
+                    )
+                except Exception as paper_error:
+                    fallback_num = _fallback_criterion_score(key, by_id[rid], query_text)
+                    score_by_id[rid][key] = fallback_num
+                    print(
+                        "  [Index] AI paper scoring failed: "
+                        f"key='{key}', paper_idx={idx}, error={paper_error}; fallback_score={fallback_num}"
+                    )
+
+            processed_papers += 1
+            if progress_callback:
+                progress_callback(processed_papers, len(payload), "ranking")
+
+        # Candidates outside the scored subset get deterministic criterion fallback.
+        for criterion in weighted_criteria:
+            key = criterion["key"]
+            for cid, cand in by_id.items():
+                if cid in payload_id_set:
+                    continue
+                score_by_id[cid][key] = _fallback_criterion_score(key, cand, query_text)
+
+        successful_criteria = sum(1 for item in weighted_criteria if criterion_success.get(item["key"]))
+
+        annotated = []
+        for cid, cand in by_id.items():
+            normalized = score_by_id[cid]
+            total_score = sum(normalized[k] * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
+
+            conf = successful_criteria / max(1, len(weighted_criteria))
+
+            rationale = " | ".join(rationale_parts_by_id[cid][:3])
+            if not rationale:
+                if successful_criteria > 0:
+                    rationale = "AI criterion scoring completed with compact numeric output." 
+                else:
+                    rationale = "Fallback scoring used due to AI criterion query failures."
+
+            copy = dict(cand)
+            copy["score_breakdown"] = normalized
+            copy["score_sequence"] = _build_score_sequence(active_keys, normalized)
+            if successful_criteria > 0:
+                copy["total_score"] = round(total_score, 4)
+                copy["score_confidence"] = max(0.0, min(1.0, conf))
+            else:
+                fallback_total = sum(normalized.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
+                copy["total_score"] = round(max(0.0, min(5.0, fallback_total)), 4)
+                copy["score_confidence"] = 0.4
+            copy["score_rationale"] = rationale[:240]
+            annotated.append(copy)
+
+        ranked = sorted(
+            annotated,
+            key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)),
+            reverse=True,
+        )
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return ranked
+    except Exception as e:
+        print(f"  [Index] AI ranking failed: {e}")
+        ranked = []
+        for c in candidates:
+            breakdown = {k: _fallback_criterion_score(k, c, query_text) for k in active_keys}
+            weighted_total = sum(breakdown.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
+            fallback_score = round(max(0.0, min(5.0, weighted_total)), 4)
+            copy = dict(c)
+            copy["score_breakdown"] = breakdown
+            copy["score_sequence"] = _build_score_sequence(active_keys, breakdown)
+            copy["total_score"] = fallback_score
+            copy["score_confidence"] = 0.4
+            copy["score_rationale"] = "Fallback scoring: AI call failed; weighted from criterion fallback scores."
+            ranked.append(copy)
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return sorted(ranked, key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)), reverse=True)
+
+
+def _fallback_arch_score(candidate, query_text):
+    corpus = " ".join([
+        candidate.get("title", ""),
+        candidate.get("summary", ""),
+        candidate.get("datacenter", ""),
+        query_text,
+    ]).lower()
+    keyword_hits = sum(1 for w in ("gpu", "cpu", "soc", "memory", "interconnect", "moe", "attention", "inference") if w in corpus)
+    keyword_score = min(5.0, 1.0 + keyword_hits * 0.5)
+    recency_score = max(0.5, min(5.0, 5.0 - max(0, datetime.datetime.now().year - int(candidate.get("year", datetime.datetime.now().year))) * 0.4))
+    citation_score = min(5.0, (int(candidate.get("citation_count", 0)) / 200.0) * 5.0)
+    pdf_bonus = 0.7 if (candidate.get("pdf_url") or candidate.get("link")) else 0.0
+    return round(min(5.0, keyword_score * 0.45 + recency_score * 0.35 + citation_score * 0.20 + pdf_bonus), 4)
+
+
+def _store_external_candidates(candidates, indexed_query):
+    for cand in candidates:
+        payload = dict(cand)
+        payload["indexed_query"] = indexed_query
+        upsert_external_paper(payload)
+
+
+def _build_external_index(query_text, year_from, year_to, source_progress_callback=None):
+    seeds = [query_text] if query_text else []
+    all_candidates = []
+    source_counts = {"core-pr": 0, "openalex": 0, "arxiv": 0}
+    for seed in seeds:
+        core_items = _fetch_core_pr_candidates(seed, year_from, year_to)
+        all_candidates.extend(core_items)
+        source_counts["core-pr"] += len(core_items)
+        if source_progress_callback:
+            source_progress_callback(dict(source_counts))
+
+        openalex_items = _fetch_openalex_candidates(seed, year_from, year_to)
+        all_candidates.extend(openalex_items)
+        source_counts["openalex"] += len(openalex_items)
+        if source_progress_callback:
+            source_progress_callback(dict(source_counts))
+
+        arxiv_items = _fetch_arxiv_candidates(seed, year_from, year_to)
+        all_candidates.extend(arxiv_items)
+        source_counts["arxiv"] += len(arxiv_items)
+        if source_progress_callback:
+            source_progress_callback(dict(source_counts))
+
+    # Debug mode behavior: keep raw source candidates without cross-source title merge.
+    # This helps diagnose whether merge dedup is hiding expected results.
+    print(f"[Index] Raw candidates (no merge): {len(all_candidates)} total, source_counts={source_counts}")
+    _store_external_candidates(all_candidates, query_text or "")
+    return all_candidates
+
+
+def _index_refresh_loop():
+    global _last_index_refresh
+    while True:
+        try:
+            with _index_lock:
+                _build_external_index("", 2020, datetime.datetime.now().year)
+                _last_index_refresh = time.time()
         except Exception as e:
-            print(f"  [AI Discovery] Semantic Scholar lookup failed for '{title[:40]}': {e}")
-        enriched.append(paper)
-        time.sleep(0.15)  # rate-limit: ~6.6 req/sec (under 100/min limit)
-    return enriched
+            print(f"  [Index] background refresh failed: {e}")
+        time.sleep(_INDEX_REFRESH_SECONDS)
+
 
 # ── Discovery helpers ───────────────────────────────────────────────────────
 
@@ -1006,141 +2252,267 @@ def _infer_key_result(text, year):
     return f"Key result signal: recent ({year}) technical contribution with architecture relevance worth deeper validation."
 
 
-def _llm_paper_to_discovery(paper, index):
-    """Convert an LLM-recommended paper dict to our standard discovery format."""
-    title = (paper.get("title") or "Untitled AI paper").strip()
-    year = int(paper.get("year", datetime.datetime.now().year))
-    authors = paper.get("authors", "AI Discovery")
-    link = paper.get("link", "")
-    summary = paper.get("summary", "")
-    abstract = paper.get("abstract", "")
-    full_text = abstract if abstract else summary
-    preview = full_text[:148] if full_text else summary[:148]
-    datacenter = paper.get("datacenter_relevance") or _infer_datacenter_impact(f"{title} {summary}")
-    metrics = paper.get("key_metrics") or _infer_key_result(summary, year)
-    citations = paper.get("citation_count")
-    if citations and isinstance(citations, int) and citations > 0:
-        metrics = f"{metrics} ({citations:,} citations)"
-
-    return {
-        "id": f"ai-rec-{slugify(f'{title}-{year}-{index}')}",
-        "title": title, "authors": authors, "year": year,
-        "groups": ["latest", "read"],
-        "preview": preview,
-        "summary": (full_text or summary) + ("" if (full_text or summary).endswith(".") else "."),
-        "datacenter": datacenter,
-        "metrics": metrics,
-        "link": link, "isDiscovery": True,
-        "source": "ai-recommended",
-        "_pubDate": f"{year}-01-01",
-    }
+def _parse_year_param(value, default_year, min_year=1990, max_year=2100):
+    try:
+        year = int(str(value).strip())
+    except (ValueError, TypeError, AttributeError):
+        return default_year
+    if year < min_year or year > max_year:
+        return default_year
+    return year
 
 
-def _openalex_to_paper(entry, index):
-    title = (entry.get("title") or "Untitled discovery paper").strip()
-    pub_date = entry.get("publication_date", "")
-    year = int(pub_date[:4]) if pub_date else datetime.datetime.now().year
-    authorships = entry.get("authorships") or []
-    authors = ", ".join(
-        a.get("author", {}).get("display_name", "") for a in authorships[:3]
-    ) or "Web Discovery"
-    link = (entry.get("open_access") or {}).get("oa_url") or entry.get("doi") or "https://openalex.org"
-    abstract = _clean_abstract(_reconstruct_abstract(entry.get("abstract_inverted_index")))
-    summary_base = abstract[:320] if len(abstract) > 60 else \
-        "This result was discovered from the live search and appears relevant to LLM architecture, MoE, or dataflow optimization."
-
-    return {
-        "id": f"web-live-{slugify(f'{title}-{year}-{index}')}",
-        "title": title, "authors": authors, "year": year,
-        "groups": ["latest", "read"],
-        "preview": summary_base[:148],
-        "summary": summary_base + ("" if summary_base.endswith(".") else "."),
-        "datacenter": _infer_datacenter_impact(f"{title} {summary_base}"),
-        "metrics": _infer_key_result(summary_base, year),
-        "link": link, "isDiscovery": True,
-        "source": "openalex",
-        "_pubDate": pub_date or f"{year}-01-01",
-    }
+def _paper_year_or_default(value, default_year):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default_year
 
 
-@app.route("/api/discover", methods=["GET"])
+def _filter_discovery_candidates(candidates, year_from, year_to):
+    allowed_sources = {"openalex", "arxiv", "core-pr"}
+    pre_source_count = len(candidates)
+    filtered = [
+        c for c in (candidates or [])
+        if set(c.get("sources") or [c.get("source", "")]).issubset(allowed_sources)
+    ]
+    print(
+        f"[Discovery] Source filter: {pre_source_count} indexed → {len(filtered)} allowed "
+        f"(dropped {pre_source_count - len(filtered)})"
+    )
+
+    pre_year_count = len(filtered)
+    filtered = [
+        r for r in filtered
+        if year_from <= _paper_year_or_default(r.get("year"), datetime.datetime.now().year) <= year_to
+    ]
+    print(
+        f"[Discovery] Year range enforcement [{year_from},{year_to}]: {pre_year_count} → {len(filtered)} "
+        f"(dropped {pre_year_count - len(filtered)})"
+    )
+    return filtered
+
+
+@app.route("/api/discover/search", methods=["GET"])
 @login_required
-def api_discover():
-    global _discovery_query_index
-
-    # Accept free-text query or fall back to rotating predefined topic
+def api_discover_search():
     query_text = request.args.get("q", "").strip()
-    if not query_text:
-        query_text = _DISCOVERY_QUERIES[_discovery_query_index % len(_DISCOVERY_QUERIES)]
-        _discovery_query_index += 1
+    year_from = _parse_year_param(request.args.get("year_from", "2020", type=str), 2020)
+    year_to = _parse_year_param(request.args.get("year_to", "2026", type=str), 2026)
+    if year_from > year_to:
+        year_from, year_to = year_to, year_from
 
-    results = []
-    errors = []
+    user_key = str(current_user.get_id() or getattr(current_user, "username", "anon"))
     ai_available = _get_azure_client() is not None
 
-    # Stage 1: LLM paper recommendations (primary source)
-    if ai_available:
-        try:
-            llm_papers = _llm_recommend_papers(query_text)
-            if llm_papers:
-                # Stage 2: Enrich with Semantic Scholar real links
-                llm_papers = _validate_with_semantic_scholar(llm_papers)
-                for i, paper in enumerate(llm_papers):
-                    results.append(_llm_paper_to_discovery(paper, i))
-        except Exception as e:
-            errors.append(f"AI recommendation: {e}")
-
-    # Stage 3: OpenAlex supplemental search
-    try:
-        year_from = request.args.get("year_from", "2020", type=str)
-        year_to = request.args.get("year_to", "2026", type=str)
-        oa_filter = f"publication_date:>{year_from}-01-01,publication_date:<{year_to}-12-31"
-        r = http_requests.get(
-            "https://api.openalex.org/works",
-            params={"search": query_text, "sort": "publication_date:desc",
-                    "filter": oa_filter, "per-page": "15"},
-            headers={"Accept": "application/json"},
-            timeout=15,
-            proxies=_proxies,
+    if not query_text:
+        _set_discovery_progress(
+            user_key,
+            stage="idle",
+            active=False,
+            processed=0,
+            total=0,
+            found=0,
+            source_counts={"core-pr": 0, "openalex": 0, "arxiv": 0},
+            message="Enter a query and click Search.",
+            query="",
         )
-        if r.ok:
-            for i, entry in enumerate(r.json().get("results", [])):
-                results.append(_openalex_to_paper(entry, i))
-        else:
-            errors.append(f"OpenAlex returned HTTP {r.status_code}")
+        return jsonify({
+            "results": [],
+            "query": "",
+            "ai_available": ai_available,
+            "applied_year_from": year_from,
+            "applied_year_to": year_to,
+            "index_count": 0,
+            "source_counts": {"core-pr": 0, "openalex": 0, "arxiv": 0},
+            "top_k": 0,
+            "errors": [],
+            "empty_reason": "Enter a search query, then click Search.",
+        })
+
+    errors = []
+    indexed = []
+    try:
+        with _index_lock:
+            def _source_progress_update(source_counts):
+                _set_discovery_progress(
+                    user_key,
+                    stage="searching",
+                    active=False,
+                    processed=0,
+                    total=0,
+                    found=int(sum(source_counts.values())),
+                    source_counts=source_counts,
+                    message="Searching sources...",
+                    query=query_text,
+                )
+
+            indexed = _build_external_index(query_text, year_from, year_to, source_progress_callback=_source_progress_update)
     except Exception as e:
-        errors.append(f"OpenAlex: {e}")
+        errors.append(f"Index build: {e}")
 
-    if not results and errors:
-        return jsonify({"error": "All sources failed", "details": errors}), 502
+    filtered = _filter_discovery_candidates(indexed, year_from, year_to)
+    source_counts = _count_source_counts(filtered)
 
-    # Dedupe against local library
-    local_titles = {p["title"].lower().strip() for p in get_all_papers()}
-    results = [r for r in results if r["title"].lower().strip() not in local_titles]
+    if not filtered:
+        if errors:
+            empty_reason = "No papers found because configured sources failed: " + "; ".join(errors)
+        else:
+            empty_reason = "No papers found for this query and year range from CORE Paper Repository, OpenAlex, or arXiv."
+    else:
+        empty_reason = ""
 
-    # Dedupe within results (AI-recommended first, so they win on conflicts)
-    seen = set()
-    deduped = []
-    for r in results:
-        key = r["title"].lower().strip()
-        if key not in seen:
-            seen.add(key)
-            deduped.append(r)
-
-    # Sort: AI-recommended first, then by date
-    deduped.sort(key=lambda x: (0 if x.get("source") == "ai-recommended" else 1, x.get("_pubDate", "")), reverse=False)
-    # Actually: AI first, then within each group reverse-chronological
-    ai_papers = [d for d in deduped if d.get("source") == "ai-recommended"]
-    oa_papers = [d for d in deduped if d.get("source") != "ai-recommended"]
-    oa_papers.sort(key=lambda x: x.get("_pubDate", ""), reverse=True)
-    final = ai_papers + oa_papers
+    _set_discovery_progress(
+        user_key,
+        stage="searched",
+        active=False,
+        processed=0,
+        total=0,
+        found=int(sum(source_counts.values())),
+        source_counts=source_counts,
+        message="Search complete. Click one team rank button to score results.",
+        query=query_text,
+    )
 
     return jsonify({
-        "results": final[:30],
+        "results": filtered,
         "query": query_text,
         "ai_available": ai_available,
+        "applied_year_from": year_from,
+        "applied_year_to": year_to,
+        "index_count": len(filtered),
+        "source_counts": source_counts,
+        "top_k": len(filtered),
         "errors": errors,
+        "empty_reason": empty_reason,
     })
+
+
+@app.route("/api/discover/rank", methods=["POST"])
+@login_required
+def api_discover_rank():
+    payload = request.get_json(silent=True) or {}
+    ranking_run_id = str(payload.get("ranking_run_id") or time.time_ns())
+    team_id = _normalize_ranking_team(payload.get("team"))
+    if not team_id:
+        return jsonify({"error": "team is required and must be one of: oie, e2o, ai_on_ia, hickory_delta"}), 400
+
+    team_label = _RANKING_TEAMS.get(team_id, team_id)
+    query_text = (payload.get("query") or "").strip()
+    year_from = _parse_year_param(payload.get("year_from", 2020), 2020)
+    year_to = _parse_year_param(payload.get("year_to", 2026), 2026)
+    if year_from > year_to:
+        year_from, year_to = year_to, year_from
+
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list):
+        return jsonify({"error": "candidates list is required"}), 400
+
+    user_key = str(current_user.get_id() or getattr(current_user, "username", "anon"))
+    ai_available = _get_azure_client() is not None
+    errors = []
+
+    filtered = _filter_discovery_candidates(candidates, year_from, year_to)
+    source_counts = _count_source_counts(filtered)
+    total_to_process = min(len(filtered), _RANK_MAX_CANDIDATES)
+
+    _set_discovery_progress(
+        user_key,
+        stage="ranking",
+        active=total_to_process > 0,
+        processed=0,
+        total=total_to_process,
+        found=int(sum(source_counts.values())),
+        source_counts=source_counts,
+        message=(
+            f"Ranking 0 of {total_to_process} papers for {team_label}..."
+            if total_to_process > 0
+            else "No papers available to rank."
+        ),
+        query=query_text,
+    )
+
+    ranked = []
+    try:
+        if filtered:
+            def _progress_callback(processed_count, total_count, stage_name):
+                safe_total = max(0, int(total_count or total_to_process or 0))
+                safe_processed = max(0, min(int(processed_count or 0), safe_total if safe_total > 0 else int(processed_count or 0)))
+                _set_discovery_progress(
+                    user_key,
+                    stage=stage_name,
+                    active=(stage_name != "completed" and safe_total > 0),
+                    processed=safe_processed,
+                    total=safe_total,
+                    found=int(sum(source_counts.values())),
+                    source_counts=source_counts,
+                    message=(
+                        f"Ranking complete for {team_label}."
+                        if stage_name == "completed"
+                        else f"Ranking {safe_processed} of {safe_total} papers for {team_label}..."
+                    ),
+                    query=query_text,
+                )
+
+            ranked = _rank_candidates_with_ai(
+                query_text,
+                filtered,
+                progress_callback=_progress_callback,
+                team_id=team_id,
+                ranking_run_id=ranking_run_id,
+            )
+        else:
+            _set_discovery_progress(
+                user_key,
+                stage="completed",
+                active=False,
+                processed=0,
+                total=0,
+                found=0,
+                source_counts=source_counts,
+                message="No papers available to rank.",
+                query=query_text,
+            )
+    except Exception as e:
+        errors.append(f"AI ranking: {e}")
+        ranked = filtered
+        _set_discovery_progress(
+            user_key,
+            stage="failed",
+            active=False,
+            processed=min(len(filtered), _RANK_MAX_CANDIDATES),
+            total=min(len(filtered), _RANK_MAX_CANDIDATES),
+            found=int(sum(source_counts.values())),
+            source_counts=source_counts,
+            message="Ranking failed. Showing unranked results.",
+            query=query_text,
+        )
+
+    if not ranked and not errors:
+        empty_reason = "No papers were available to rank."
+    elif not ranked and errors:
+        empty_reason = "Ranking failed: " + "; ".join(errors)
+    else:
+        empty_reason = ""
+
+    resp = jsonify({
+        "results": ranked,
+        "query": query_text,
+        "ai_available": ai_available,
+        "applied_year_from": year_from,
+        "applied_year_to": year_to,
+        "index_count": len(filtered),
+        "source_counts": source_counts,
+        "top_k": len(ranked),
+        "team": team_id,
+        "team_label": team_label,
+        "ranking_run_id": ranking_run_id,
+        "errors": errors,
+        "empty_reason": empty_reason,
+    })
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 # ── SSE endpoint ────────────────────────────────────────────────────────────
@@ -1182,6 +2554,10 @@ init_db()
 # Start folder watcher on a background daemon thread
 _watcher = threading.Thread(target=watch_loop, daemon=True)
 _watcher.start()
+
+# Start external index refresh on a background daemon thread
+_index_refresher = threading.Thread(target=_index_refresh_loop, daemon=True)
+_index_refresher.start()
 
 if __name__ == "__main__":
     print(f"\n  Open: http://localhost:5000/")
