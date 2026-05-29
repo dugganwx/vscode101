@@ -1478,8 +1478,8 @@ def _paper_to_external_record(*, source, title, authors, year, preview, summary,
         "year": safe_year,
         "preview": preview or (summary[:148] if summary else ""),
         "summary": summary or preview or "",
-        "datacenter": datacenter or _infer_datacenter_impact(f"{canonical_title} {summary or preview or ''}"),
-        "metrics": metrics or _infer_key_result(summary or preview or canonical_title, safe_year),
+        "datacenter": datacenter or "",
+        "metrics": metrics or "",
         "source": source,
         "sources": sources,
         "link": link or pdf_url or "",
@@ -1642,8 +1642,8 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
                 year=year,
                 preview=summary[:148],
                 summary=summary,
-                datacenter=_infer_datacenter_impact(f"{title} {summary}"),
-                metrics=_infer_key_result(summary or title, year),
+                datacenter="",
+                metrics="",
                 link=link,
                 pdf_url=pdf_url,
                 citation_count=entry.get("citationCount", 0),
@@ -1717,8 +1717,8 @@ def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
                     year=year,
                     preview=(abstract[:148] if abstract else title[:148]),
                     summary=abstract or title,
-                    datacenter=_infer_datacenter_impact(f"{title} {abstract}"),
-                    metrics=_infer_key_result(abstract or title, year),
+                    datacenter="",
+                    metrics="",
                     link=link,
                     pdf_url=(entry.get("open_access") or {}).get("oa_url") or "",
                     citation_count=entry.get("cited_by_count", 0),
@@ -1796,8 +1796,8 @@ def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
                     year=year,
                     preview=summary[:148],
                     summary=summary,
-                    datacenter=_infer_datacenter_impact(f"{title} {summary}"),
-                    metrics=_infer_key_result(summary or title, year),
+                    datacenter="",
+                    metrics="",
                     link=pdf_url or entry.findtext("atom:id", default="", namespaces=ns) or "",
                     pdf_url=pdf_url,
                     citation_count=0,
@@ -2232,24 +2232,6 @@ def _reconstruct_abstract(inverted_index):
         for pos in positions:
             words[pos] = word
     return " ".join(words[i] for i in sorted(words))
-
-
-def _infer_datacenter_impact(text):
-    lower = text.lower()
-    if any(w in lower for w in ("mixture", "moe", "expert")):
-        return "This likely affects sparse routing behavior, all-to-all traffic patterns, and cluster scheduling strategy for MoE workloads."
-    if any(w in lower for w in ("inference", "serving", "latency")):
-        return "This is likely relevant to serving economics, memory footprint control, and latency-throughput tuning in production datacenters."
-    if any(w in lower for w in ("dataflow", "interconnect", "memory")):
-        return "This likely impacts memory hierarchy design, interconnect utilization, and accelerator data movement efficiency."
-    return "This likely provides useful guidance for balancing quality, throughput, and total infrastructure cost in enterprise AI clusters."
-
-
-def _infer_key_result(text, year):
-    m = re.search(r'\b\d+(?:\.\d+)?\s?(?:x|%|b|m|tokens|gpu|gpus|ms)\b', text, re.IGNORECASE)
-    if m:
-        return f"Key result signal: reported metric includes {m.group(0)}, indicating measurable system or model impact."
-    return f"Key result signal: recent ({year}) technical contribution with architecture relevance worth deeper validation."
 
 
 def _parse_year_param(value, default_year, min_year=1990, max_year=2100):
