@@ -9,6 +9,7 @@ let papers = [];
 let activeFilter = "all";
 let _discoverySourceCounts = { arxiv: 0, openalex: 0, "core-pr": 0 };
 let _discoverySourceErrors = { arxiv: null, openalex: null, "core-pr": null };
+let _liveCitationCounts = {}; // { paper_id: int | null } — null means could not be retrieved
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -212,22 +213,52 @@ function tagImportantPapers(paperList) {
 
 function tagMostCitedPapers(paperList) {
   const TOP_N = 5;
-  const eligible = paperList.filter((p) => !p._hasSidecarGroups);
-  eligible.slice().sort((a, b) => Number(b.citation_count || 0) - Number(a.citation_count || 0))
-    .forEach((paper, idx) => {
-      const hasCitations = Number(paper.citation_count || 0) > 0;
-      if (idx < TOP_N && hasCitations) {
-        if (!paper.groups.includes("citations")) paper.groups.push("citations");
-      } else {
-        paper.groups = paper.groups.filter((g) => g !== "citations");
-      }
-    });
+  // All papers are eligible — live counts override stored values
+  const eligible = paperList.slice();
+  eligible.sort((a, b) => {
+    const ca = typeof a.live_citation_count === "number" ? a.live_citation_count : -1;
+    const cb = typeof b.live_citation_count === "number" ? b.live_citation_count : -1;
+    return cb - ca;
+  });
+  eligible.forEach((paper, idx) => {
+    const count = typeof paper.live_citation_count === "number" ? paper.live_citation_count : -1;
+    if (idx < TOP_N && count > 0) {
+      if (!paper.groups.includes("citations")) paper.groups.push("citations");
+    } else {
+      paper.groups = paper.groups.filter((g) => g !== "citations");
+    }
+  });
 }
 
 function rebuildPapers() {
   papers = [...dynamicLocalPapers];
+  // Apply any already-fetched live citation counts
+  if (Object.keys(_liveCitationCounts).length > 0) {
+    papers.forEach((p) => {
+      if (p.id in _liveCitationCounts) p.live_citation_count = _liveCitationCounts[p.id];
+    });
+  }
   tagImportantPapers(papers);
   tagMostCitedPapers(papers);
+}
+
+async function _refreshCitationCounts() {
+  try {
+    const res = await fetch("/api/papers/citation-counts");
+    if (!res.ok) return;
+    _liveCitationCounts = await res.json();
+    // Apply to current papers array
+    papers.forEach((p) => {
+      if (p.id in _liveCitationCounts) p.live_citation_count = _liveCitationCounts[p.id];
+    });
+    tagMostCitedPapers(papers);
+    // Re-render whichever library view is active
+    const activePage = document.querySelector(".page-section.page-active");
+    if (activePage && activePage.id === "page-library-view") {
+      renderLibraryView();
+      renderFullSections();
+    }
+  } catch (_) {}
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────
@@ -1119,6 +1150,13 @@ function renderExpandedCard(paper, libraryViewMode) {
         <h4>Key Result Signal</h4>
         <p>${escapeHtml(paper.metrics || "")}</p>
       </div>
+      ${(() => {
+        if (!paper.isLocal) return "";
+        if (paper.live_citation_count === undefined) return "";
+        if (paper.live_citation_count === null) return `<div class="card-section"><h4>Citations</h4><p class="score-error">citation count could not be received</p></div>`;
+        return `<div class="card-section"><h4>Citations</h4><p>${paper.live_citation_count.toLocaleString()} citations</p></div>`;
+      })()
+      }
       ${scoreDetails}
       <div class="card-actions">
         ${actionHtml}
@@ -1306,7 +1344,7 @@ function switchPage(pageId) {
 
   // Render page content on switch
   if (pageId === "page-search-library") renderSearchLibrary();
-  if (pageId === "page-library-view") { renderLibraryView(); renderFullSections(); }
+  if (pageId === "page-library-view") { _refreshCitationCounts(); renderLibraryView(); renderFullSections(); }
 }
 
 // ── Page 1: Discovery ──────────────────────────────────────────────────────

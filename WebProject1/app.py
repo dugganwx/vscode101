@@ -2257,10 +2257,84 @@ def _filter_discovery_candidates(candidates, year_from, year_to):
     return filtered
 
 
+def _fetch_openalex_citation_count(paper):
+    """Look up a paper's citation count live from OpenAlex.
+    Returns an int on success, or None if the count could not be retrieved."""
+    title = (paper.get("title") or "").strip()
+    link = (paper.get("link") or "").strip()
+
+    # Try DOI lookup first (most accurate)
+    doi = None
+    if "doi.org/" in link:
+        doi = link.split("doi.org/", 1)[-1].strip().rstrip("/")
+    if doi:
+        try:
+            r = http_requests.get(
+                f"https://api.openalex.org/works/doi:{doi}",
+                headers={"Accept": "application/json"},
+                timeout=15,
+                proxies=_proxies,
+            )
+            if r.ok:
+                data = r.json()
+                count = data.get("cited_by_count")
+                if count is not None:
+                    return int(count)
+        except Exception as e:
+            print(f"[Citations] DOI lookup failed for '{title}': {e}")
+
+    # Fall back to title search
+    if not title:
+        return None
+    try:
+        r = http_requests.get(
+            "https://api.openalex.org/works",
+            params={"search": title, "per-page": "1"},
+            headers={"Accept": "application/json"},
+            timeout=15,
+            proxies=_proxies,
+        )
+        if not r.ok:
+            return None
+        results = r.json().get("results", [])
+        if not results:
+            return None
+        # Verify title similarity to avoid mismatches
+        result_title = (results[0].get("title") or "").lower()
+        query_tokens = set(re.findall(r"[a-z0-9]+", title.lower()))
+        result_tokens = set(re.findall(r"[a-z0-9]+", result_title))
+        if not query_tokens:
+            return None
+        overlap = len(query_tokens & result_tokens) / len(query_tokens)
+        if overlap < 0.8:
+            print(f"[Citations] Title match too low ({overlap:.0%}) for '{title}' -> '{results[0].get('title')}'")
+            return None
+        count = results[0].get("cited_by_count")
+        return int(count) if count is not None else None
+    except Exception as e:
+        print(f"[Citations] Title search failed for '{title}': {e}")
+        return None
+
+
+@app.route("/api/papers/citation-counts", methods=["GET"])
+@login_required
+def api_citation_counts():
+    """Fetch live citation counts from OpenAlex for all library papers."""
+    all_papers = get_all_papers()
+    result = {}
+    for paper in all_papers:
+        pid = paper.get("id")
+        if not pid:
+            continue
+        count = _fetch_openalex_citation_count(paper)
+        result[pid] = count  # int or None
+        print(f"[Citations] {pid}: {count if count is not None else 'not found'}")
+    return jsonify(result)
+
+
 @app.route("/api/discover/search", methods=["GET"])
 @login_required
 def api_discover_search():
-    query_text = request.args.get("q", "").strip()
     year_from = _parse_year_param(request.args.get("year_from", "2020", type=str), 2020)
     year_to = _parse_year_param(request.args.get("year_to", "2026", type=str), 2026)
     if year_from > year_to:
