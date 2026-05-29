@@ -1882,31 +1882,6 @@ def _extract_json_object_text(raw_text):
     raise ValueError("No JSON object found in LLM response")
 
 
-def _fallback_criterion_score(criterion_key, candidate, query_text):
-    corpus = " ".join([
-        str(candidate.get("title", "") or ""),
-        str(candidate.get("summary", "") or ""),
-        str(candidate.get("datacenter", "") or ""),
-        str(candidate.get("metrics", "") or ""),
-        str(query_text or ""),
-    ]).lower()
-
-    token_map = {
-        "memory_hierarchy_impact": ["memory", "cache", "hbm", "dram", "bandwidth", "latency", "prefetch", "kv cache"],
-        "compute_arch_fit": ["gpu", "cpu", "soc", "tensor", "simd", "matrix", "throughput"],
-        "cluster_scalability": ["cluster", "distributed", "interconnect", "scale", "network", "datacenter"],
-        "implementation_readiness": ["benchmark", "code", "open source", "reproducible", "deployment", "production"],
-        "efficiency_tco": ["tco", "efficiency", "watt", "power", "latency", "cost", "inference"],
-    }
-    tokens = token_map.get(criterion_key, [])
-    if not tokens:
-        return max(0.0, min(5.0, _fallback_arch_score(candidate, query_text)))
-
-    hits = sum(1 for t in tokens if t in corpus)
-    # 0 hits -> 1.0, saturate near 5.0 as evidence accumulates.
-    return round(max(0.0, min(5.0, 1.0 + hits * 0.6)), 4)
-
-
 def _build_score_sequence(active_keys, score_breakdown):
     seq = []
     for idx, key in enumerate(active_keys):
@@ -1937,19 +1912,13 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
     if client is None or not candidates:
         ranked = []
         for c in candidates:
-            breakdown = {k: _fallback_criterion_score(k, c, query_text) for k in active_keys}
-            weighted_total = sum(breakdown.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
-            fallback_score = round(max(0.0, min(5.0, weighted_total)), 4)
             copy = dict(c)
-            copy["score_breakdown"] = breakdown
-            copy["score_sequence"] = _build_score_sequence(active_keys, breakdown)
-            copy["total_score"] = fallback_score
-            copy["score_confidence"] = 0.4
-            copy["score_rationale"] = "Fallback scoring: AI unavailable."
+            copy["score_error"] = "AI endpoint unavailable"
+            copy["total_score"] = None
             ranked.append(copy)
         if progress_callback:
             progress_callback(total_scored, total_scored, "completed")
-        return sorted(ranked, key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)), reverse=True)
+        return ranked
 
     deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
     payload = [
@@ -1980,21 +1949,9 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
 
     if not weighted_criteria:
         print("  [Rank] All criteria weights are zero; skipping LLM ranking.")
-        ranked = []
-        for c in candidates:
-            breakdown = {k: _fallback_criterion_score(k, c, query_text) for k in active_keys}
-            weighted_total = sum(breakdown.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
-            fallback_score = round(max(0.0, min(5.0, weighted_total)), 4)
-            copy = dict(c)
-            copy["score_breakdown"] = breakdown
-            copy["score_sequence"] = _build_score_sequence(active_keys, breakdown)
-            copy["total_score"] = fallback_score
-            copy["score_confidence"] = 0.4
-            copy["score_rationale"] = "Fallback scoring: weighted from criterion fallback scores."
-            ranked.append(copy)
         if progress_callback:
             progress_callback(total_scored, total_scored, "completed")
-        return sorted(ranked, key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)), reverse=True)
+        return list(candidates)
 
     try:
         print(
@@ -2004,7 +1961,7 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
         )
         by_id = {c["id"]: c for c in candidates}
         payload_id_set = set(payload_ids)
-        score_by_id = {cid: {k: 0.0 for k in active_keys} for cid in by_id.keys()}
+        score_by_id = {cid: {k: None for k in active_keys} for cid in by_id.keys()}
         rationale_parts_by_id = {cid: [] for cid in by_id.keys()}
         criterion_success = {item["key"]: False for item in weighted_criteria}
         processed_papers = 0
@@ -2109,52 +2066,52 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
                         f"key='{key}', paper_idx={idx}, finish_reason={finish_reason}, elapsed_ms={elapsed_ms}, score={num}"
                     )
                 except Exception as paper_error:
-                    fallback_num = _fallback_criterion_score(key, by_id[rid], query_text)
-                    score_by_id[rid][key] = fallback_num
+                    score_by_id[rid][key] = None
                     print(
                         "  [Index] AI paper scoring failed: "
-                        f"key='{key}', paper_idx={idx}, error={paper_error}; fallback_score={fallback_num}"
+                        f"key='{key}', paper_idx={idx}, error={paper_error}"
                     )
 
             processed_papers += 1
             if progress_callback:
                 progress_callback(processed_papers, len(payload), "ranking")
 
-        # Candidates outside the scored subset get deterministic criterion fallback.
+        # Candidates outside the scored subset are not scored.
         for criterion in weighted_criteria:
             key = criterion["key"]
-            for cid, cand in by_id.items():
-                if cid in payload_id_set:
-                    continue
-                score_by_id[cid][key] = _fallback_criterion_score(key, cand, query_text)
+            for cid in by_id.keys():
+                if cid not in payload_id_set:
+                    # Mark as None — outside the scored window, no score available
+                    score_by_id[cid][key] = None
 
         successful_criteria = sum(1 for item in weighted_criteria if criterion_success.get(item["key"]))
 
         annotated = []
         for cid, cand in by_id.items():
             normalized = score_by_id[cid]
-            total_score = sum(normalized[k] * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
-
-            conf = successful_criteria / max(1, len(weighted_criteria))
-
-            rationale = " | ".join(rationale_parts_by_id[cid][:3])
-            if not rationale:
-                if successful_criteria > 0:
-                    rationale = "AI criterion scoring completed with compact numeric output." 
-                else:
-                    rationale = "Fallback scoring used due to AI criterion query failures."
+            # Find which keys have valid scores (not None)
+            scored_keys = [k for k in active_keys if normalized.get(k) is not None]
+            failed_keys = [k for k in active_keys if normalized.get(k) is None]
 
             copy = dict(cand)
-            copy["score_breakdown"] = normalized
-            copy["score_sequence"] = _build_score_sequence(active_keys, normalized)
-            if successful_criteria > 0:
+            if failed_keys and not scored_keys:
+                copy["score_error"] = f"AI scoring failed for: {', '.join(failed_keys)}"
+                copy["total_score"] = None
+                copy["score_breakdown"] = {k: v for k, v in normalized.items() if v is not None}
+                copy["score_sequence"] = _build_score_sequence(scored_keys, normalized)
+            else:
+                # Compute total_score only from scored keys (ignore None)
+                total_score = sum(
+                    normalized[k] * float(active_weights.get(k, 0.0) or 0.0)
+                    for k in scored_keys
+                )
+                conf = len(scored_keys) / max(1, len(weighted_criteria))
                 copy["total_score"] = round(total_score, 4)
                 copy["score_confidence"] = max(0.0, min(1.0, conf))
-            else:
-                fallback_total = sum(normalized.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
-                copy["total_score"] = round(max(0.0, min(5.0, fallback_total)), 4)
-                copy["score_confidence"] = 0.4
-            copy["score_rationale"] = rationale[:240]
+                copy["score_breakdown"] = {k: v for k, v in normalized.items() if v is not None}
+                copy["score_sequence"] = _build_score_sequence(scored_keys, normalized)
+                if failed_keys:
+                    copy["score_error"] = f"Partial scoring — failed criteria: {', '.join(failed_keys)}"
             annotated.append(copy)
 
         ranked = sorted(
@@ -2169,34 +2126,13 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
         print(f"  [Index] AI ranking failed: {e}")
         ranked = []
         for c in candidates:
-            breakdown = {k: _fallback_criterion_score(k, c, query_text) for k in active_keys}
-            weighted_total = sum(breakdown.get(k, 0.0) * float(active_weights.get(k, 0.0) or 0.0) for k in active_keys)
-            fallback_score = round(max(0.0, min(5.0, weighted_total)), 4)
             copy = dict(c)
-            copy["score_breakdown"] = breakdown
-            copy["score_sequence"] = _build_score_sequence(active_keys, breakdown)
-            copy["total_score"] = fallback_score
-            copy["score_confidence"] = 0.4
-            copy["score_rationale"] = "Fallback scoring: AI call failed; weighted from criterion fallback scores."
+            copy["score_error"] = f"AI ranking failed: {e}"
+            copy["total_score"] = None
             ranked.append(copy)
         if progress_callback:
             progress_callback(total_scored, total_scored, "completed")
-        return sorted(ranked, key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)), reverse=True)
-
-
-def _fallback_arch_score(candidate, query_text):
-    corpus = " ".join([
-        candidate.get("title", ""),
-        candidate.get("summary", ""),
-        candidate.get("datacenter", ""),
-        query_text,
-    ]).lower()
-    keyword_hits = sum(1 for w in ("gpu", "cpu", "soc", "memory", "interconnect", "moe", "attention", "inference") if w in corpus)
-    keyword_score = min(5.0, 1.0 + keyword_hits * 0.5)
-    recency_score = max(0.5, min(5.0, 5.0 - max(0, datetime.datetime.now().year - int(candidate.get("year", datetime.datetime.now().year))) * 0.4))
-    citation_score = min(5.0, (int(candidate.get("citation_count", 0)) / 200.0) * 5.0)
-    pdf_bonus = 0.7 if (candidate.get("pdf_url") or candidate.get("link")) else 0.0
-    return round(min(5.0, keyword_score * 0.45 + recency_score * 0.35 + citation_score * 0.20 + pdf_bonus), 4)
+        return ranked
 
 
 def _store_external_candidates(candidates, indexed_query):
@@ -2506,7 +2442,6 @@ def api_discover_rank():
             )
     except Exception as e:
         errors.append(f"AI ranking: {e}")
-        ranked = filtered
         _set_discovery_progress(
             user_key,
             stage="failed",
@@ -2515,9 +2450,10 @@ def api_discover_rank():
             total=min(len(filtered), _RANK_MAX_CANDIDATES),
             found=int(sum(source_counts.values())),
             source_counts=source_counts,
-            message="Ranking failed. Showing unranked results.",
+            message="Ranking failed.",
             query=query_text,
         )
+        return jsonify({"error": str(e)}), 500
 
     if not ranked and not errors:
         empty_reason = "No papers were available to rank."

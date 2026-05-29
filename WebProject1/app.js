@@ -1083,19 +1083,16 @@ function renderExpandedCard(paper, libraryViewMode) {
   const scoreConfidence = Number.isFinite(parseFloat(paper.score_confidence))
     ? Math.round(parseFloat(paper.score_confidence) * 100)
     : null;
-  const scoreDetails = hasScore && paper.isDiscovery
-    ? `<div class="card-section">
-        <h4>Architecture Score</h4>
-        <p>${scoreValue.toFixed(2)} / 5${scoreConfidence !== null ? " &bull; AI generated score" : ""}</p>
-      </div>`
+  const scoreDetails = paper.isDiscovery
+    ? (paper.score_error
+        ? `<div class="card-section"><h4>Architecture Score</h4><p class="score-error">${escapeHtml(paper.score_error)}</p></div>`
+        : hasScore
+          ? `<div class="card-section"><h4>Architecture Score</h4><p>${scoreValue.toFixed(2)} / 5${scoreConfidence !== null ? " &bull; AI generated score" : ""}</p></div>`
+          : "")
     : "";
 
-  const scoreSequence = Array.isArray(paper.score_sequence)
-    ? paper.score_sequence
-    : (paper.score_breakdown && typeof paper.score_breakdown === "object"
-      ? Object.entries(paper.score_breakdown).map(([_, val], idx) => ({ q: `Q${idx + 1}`, score: val, max: 5 }))
-      : []);
-  const questionScoresHtml = paper.isDiscovery && scoreSequence.length
+  const scoreSequence = Array.isArray(paper.score_sequence) ? paper.score_sequence : [];
+  const questionScoresHtml = paper.isDiscovery && !paper.score_error && scoreSequence.length
     ? `<div class="score-breakdown-row" aria-label="Per-question scores">${scoreSequence.map((item, idx) => {
         const qLabel = escapeHtml(item.q || `Q${idx + 1}`);
         const raw = parseFloat(item.score);
@@ -1440,6 +1437,8 @@ async function handleRankPapers(teamId) {
       ? `Ranking complete for ${teamLabel}.`
       : (_discoveryEmptyReason || "No papers available after ranking.");
   } catch (error) {
+    discoveredWebPapers = [];
+    renderDiscoveryFeed();
     discoveryStatusEl.textContent = `Ranking failed: ${error.message}`;
     _setDiscoveryProgressBar(0, 0, false, "Ranking failed.");
   } finally {
