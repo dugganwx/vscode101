@@ -245,7 +245,7 @@ async function fetchPapersFromApi() {
     dynamicLocalPapers = data.map((p) => ({
       ...p, isLocal: true,
       _hasSidecarGroups: !!p._hasSidecarGroups,
-      groups: Array.isArray(p.groups) ? p.groups : ["latest"],
+      groups: Array.isArray(p.groups) ? p.groups : [],
     }));
     rebuildPapers();
     // Re-render whichever page is active
@@ -1281,7 +1281,7 @@ function showEditForm(paper, cardEl) {
     const formData = new FormData(e.target);
     const updates = {};
     for (const [k, v] of formData.entries()) {
-      updates[k] = k === "year" ? parseInt(v, 10) || paper.year : v;
+      updates[k] = k === "year" ? (Number.isInteger(parseInt(v, 10)) && !isNaN(parseInt(v, 10)) ? parseInt(v, 10) : (() => { alert("Year must be a valid number."); throw new Error("Invalid year"); })()) : v;
     }
     try { await updatePaperMetadata(paper.id, updates); } catch (err) { alert("Save failed: " + err.message); }
   });
