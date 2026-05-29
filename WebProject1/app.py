@@ -1560,6 +1560,8 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
     soft_mode_enabled = bool(_CORE_ENABLE_TOKEN_FILTER and _CORE_TOKEN_FILTER_MODE == "soft")
     ratio_threshold = max(0.0, min(1.0, float(_CORE_MIN_TOKEN_MATCH_RATIO)))
     min_count_threshold = max(1, int(_CORE_MIN_TOKEN_MATCH_COUNT))
+    any_variant_ok = False
+    last_error_code = None
 
     for variant_idx, search_text in enumerate(search_variants, 1):
         if not search_text:
@@ -1578,7 +1580,9 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
         )
         if not r.ok:
             print(f"[Index] [CORE] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
+            last_error_code = r.status_code
             continue
+        any_variant_ok = True
 
         payload = r.json() or {}
         raw_data = payload.get("results", [])
@@ -1662,7 +1666,16 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
         if dropped_samples:
             print(f"[Index] [CORE] Variant {variant_idx} token drops (sample): {', '.join(dropped_samples)}")
     print(f"[Index] [CORE] Complete: {len(results)} total papers from all variants")
-    return results
+    if not any_variant_ok and search_variants:
+        if last_error_code == 429:
+            error = "Rate limited"
+        elif last_error_code:
+            error = f"HTTP {last_error_code}"
+        else:
+            error = "Unreachable"
+    else:
+        error = None
+    return results, error
 
 
 def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
@@ -1673,6 +1686,8 @@ def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
             _query_keyword_text(query_text),
             (query_text or "").strip(),
         ])
+        any_variant_ok = False
+        last_error_code = None
         print(f"[Index] [OA] Starting: query='{query_text}', year=[{year_from},{year_to}], variants={len(search_variants)}")
 
         for variant_idx, search_text in enumerate(search_variants, 1):
@@ -1690,7 +1705,9 @@ def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
             )
             if not r.ok:
                 print(f"[Index] [OA] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
+                last_error_code = r.status_code
                 continue
+            any_variant_ok = True
 
             raw_data = r.json().get("results", [])
             print(f"[Index] [OA] Variant {variant_idx}: Raw API response: {len(raw_data)} papers")
@@ -1728,10 +1745,19 @@ def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
                 variant_passed += 1
             print(f"[Index] [OA] Variant {variant_idx}: {len(raw_data)} raw → {year_dropped} year-filtered → {variant_passed} passed")
         print(f"[Index] [OA] Complete: {len(results)} total papers from all variants")
-        return results
+        if not any_variant_ok and search_variants:
+            if last_error_code == 429:
+                error = "Rate limited"
+            elif last_error_code:
+                error = f"HTTP {last_error_code}"
+            else:
+                error = "Unreachable"
+        else:
+            error = None
+        return results, error
     except Exception as e:
         print(f"[Index] [OA] Exception: {e}")
-        return []
+        return [], "Unreachable"
 
 
 def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
@@ -1744,6 +1770,8 @@ def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
             f'all:"{query_text.strip()}"' if (query_text or "").strip() else "",
             " OR ".join(f"all:{token}" for token in tokens[:4]) if len(tokens) >= 2 else "",
         ])
+        any_variant_ok = False
+        last_error_code = None
         print(f"[Index] [arXiv] Starting: query='{query_text}', tokens={tokens}, year=[{year_from},{year_to}], variants={len(query_variants)}")
 
         for variant_idx, search_query in enumerate(query_variants, 1):
@@ -1765,7 +1793,9 @@ def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
             )
             if not r.ok:
                 print(f"[Index] [arXiv] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
+                last_error_code = r.status_code
                 continue
+            any_variant_ok = True
 
             root = ET.fromstring(r.text)
             raw_data = root.findall("atom:entry", ns)
@@ -1807,10 +1837,19 @@ def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
                 variant_passed += 1
             print(f"[Index] [arXiv] Variant {variant_idx}: {len(raw_data)} raw → {year_dropped} year-filtered → {variant_passed} passed")
         print(f"[Index] [arXiv] Complete: {len(results)} total papers from all variants")
-        return results
+        if not any_variant_ok and query_variants:
+            if last_error_code == 429:
+                error = "Rate limited"
+            elif last_error_code:
+                error = f"HTTP {last_error_code}"
+            else:
+                error = "Unreachable"
+        else:
+            error = None
+        return results, error
     except Exception as e:
         print(f"[Index] [arXiv] Exception: {e}")
-        return []
+        return [], "Unreachable"
 
 
 def _safe_json_snippet(value, limit=_RANK_LOG_SNIPPET_CHARS):
@@ -2171,22 +2210,29 @@ def _build_external_index(query_text, year_from, year_to, source_progress_callba
     seeds = [query_text] if query_text else []
     all_candidates = []
     source_counts = {"core-pr": 0, "openalex": 0, "arxiv": 0}
+    source_errors = {"core-pr": None, "openalex": None, "arxiv": None}
     for seed in seeds:
-        core_items = _fetch_core_pr_candidates(seed, year_from, year_to)
+        core_items, core_err = _fetch_core_pr_candidates(seed, year_from, year_to)
         all_candidates.extend(core_items)
         source_counts["core-pr"] += len(core_items)
+        if core_err:
+            source_errors["core-pr"] = core_err
         if source_progress_callback:
             source_progress_callback(dict(source_counts))
 
-        openalex_items = _fetch_openalex_candidates(seed, year_from, year_to)
+        openalex_items, oa_err = _fetch_openalex_candidates(seed, year_from, year_to)
         all_candidates.extend(openalex_items)
         source_counts["openalex"] += len(openalex_items)
+        if oa_err:
+            source_errors["openalex"] = oa_err
         if source_progress_callback:
             source_progress_callback(dict(source_counts))
 
-        arxiv_items = _fetch_arxiv_candidates(seed, year_from, year_to)
+        arxiv_items, arxiv_err = _fetch_arxiv_candidates(seed, year_from, year_to)
         all_candidates.extend(arxiv_items)
         source_counts["arxiv"] += len(arxiv_items)
+        if arxiv_err:
+            source_errors["arxiv"] = arxiv_err
         if source_progress_callback:
             source_progress_callback(dict(source_counts))
 
@@ -2194,7 +2240,7 @@ def _build_external_index(query_text, year_from, year_to, source_progress_callba
     # This helps diagnose whether merge dedup is hiding expected results.
     print(f"[Index] Raw candidates (no merge): {len(all_candidates)} total, source_counts={source_counts}")
     _store_external_candidates(all_candidates, query_text or "")
-    return all_candidates
+    return all_candidates, source_errors
 
 
 def _index_refresh_loop():
@@ -2314,6 +2360,7 @@ def api_discover_search():
 
     errors = []
     indexed = []
+    source_errors = {"core-pr": None, "openalex": None, "arxiv": None}
     try:
         with _index_lock:
             def _source_progress_update(source_counts):
@@ -2329,7 +2376,7 @@ def api_discover_search():
                     query=query_text,
                 )
 
-            indexed = _build_external_index(query_text, year_from, year_to, source_progress_callback=_source_progress_update)
+            indexed, source_errors = _build_external_index(query_text, year_from, year_to, source_progress_callback=_source_progress_update)
     except Exception as e:
         errors.append(f"Index build: {e}")
 
@@ -2364,6 +2411,7 @@ def api_discover_search():
         "applied_year_to": year_to,
         "index_count": len(filtered),
         "source_counts": source_counts,
+        "source_errors": source_errors,
         "top_k": len(filtered),
         "errors": errors,
         "empty_reason": empty_reason,
@@ -2390,6 +2438,7 @@ def api_discover_rank():
     if not isinstance(candidates, list):
         return jsonify({"error": "candidates list is required"}), 400
 
+    source_errors = payload.get("source_errors") or {"core-pr": None, "openalex": None, "arxiv": None}
     user_key = str(current_user.get_id() or getattr(current_user, "username", "anon"))
     ai_available = _get_azure_client() is not None
     errors = []
@@ -2485,6 +2534,7 @@ def api_discover_rank():
         "applied_year_to": year_to,
         "index_count": len(filtered),
         "source_counts": source_counts,
+        "source_errors": source_errors,
         "top_k": len(ranked),
         "team": team_id,
         "team_label": team_label,
