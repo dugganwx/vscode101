@@ -790,7 +790,6 @@ _DISCOVERY_QUERIES = [
 ]
 _discovery_query_index = 0
 _index_lock = threading.Lock()
-_RANK_MAX_CANDIDATES = 12
 _RANK_LOG_SNIPPET_CHARS = 700
 _last_index_refresh = 0.0
 _INDEX_REFRESH_SECONDS = 12 * 60 * 60
@@ -1570,16 +1569,20 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
             continue
 
         print(f"[Index] [CORE] Variant {variant_idx}: '{search_text}'")
-        r = http_requests.get(
-            "https://api.core.ac.uk/v3/search/works",
-            params={
-                "q": search_text,
-                "limit": limit,
-                "offset": 0,
-            },
-            timeout=15,
-            proxies=_proxies,
-        )
+        try:
+            r = http_requests.get(
+                "https://api.core.ac.uk/v3/search/works",
+                params={
+                    "q": search_text,
+                    "limit": limit,
+                    "offset": 0,
+                },
+                timeout=15,
+                proxies=_proxies,
+            )
+        except Exception as variant_err:
+            print(f"[Index] [CORE] Variant {variant_idx} request failed: {variant_err}")
+            continue
         if not r.ok:
             print(f"[Index] [CORE] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
             last_error_code = r.status_code
@@ -1781,18 +1784,23 @@ def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
                 continue
             print(f"[Index] [arXiv] Variant {variant_idx}: '{search_query}'")
 
-            r = http_requests.get(
-                "http://export.arxiv.org/api/query",
-                params={
-                    "search_query": search_query,
-                    "start": 0,
-                    "max_results": limit,
-                    "sortBy": "submittedDate",
-                    "sortOrder": "descending",
-                },
-                timeout=20,
-                proxies=_proxies,
-            )
+            try:
+                r = http_requests.get(
+                    "http://export.arxiv.org/api/query",
+                    params={
+                        "search_query": search_query,
+                        "start": 0,
+                        "max_results": limit,
+                        "sortBy": "submittedDate",
+                        "sortOrder": "descending",
+                    },
+                    timeout=20,
+                    proxies=_proxies,
+                )
+            except Exception as variant_err:
+                print(f"[Index] [arXiv] Variant {variant_idx} request failed: {variant_err}")
+                continue
+
             if not r.ok:
                 print(f"[Index] [arXiv] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
                 last_error_code = r.status_code
@@ -1908,8 +1916,7 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
     ranking_run_id = str(ranking_run_id or time.time_ns())
 
     client = _get_azure_client()
-    scored_candidates = candidates[:_RANK_MAX_CANDIDATES]
-    total_scored = len(scored_candidates)
+    total_scored = len(candidates)
 
     if client is None or not candidates:
         ranked = []
@@ -1932,9 +1939,9 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
             "summary": (c.get("summary") or c.get("preview") or "")[:110],
             "datacenter": (c.get("datacenter") or "")[:80],
         }
-        for c in scored_candidates
+        for c in candidates
     ]
-    payload_ids = [c["id"] for c in scored_candidates]
+    payload_ids = [c["id"] for c in candidates]
 
     weighted_criteria = []
     for key in active_keys:
@@ -1962,7 +1969,6 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
             f"candidates={len(payload)}, weighted_criteria={len(weighted_criteria)}"
         )
         by_id = {c["id"]: c for c in candidates}
-        payload_id_set = set(payload_ids)
         score_by_id = {cid: {k: None for k in active_keys} for cid in by_id.keys()}
         rationale_parts_by_id = {cid: [] for cid in by_id.keys()}
         criterion_success = {item["key"]: False for item in weighted_criteria}
@@ -2078,14 +2084,6 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
             if progress_callback:
                 progress_callback(processed_papers, len(payload), "ranking")
 
-        # Candidates outside the scored subset are not scored.
-        for criterion in weighted_criteria:
-            key = criterion["key"]
-            for cid in by_id.keys():
-                if cid not in payload_id_set:
-                    # Mark as None — outside the scored window, no score available
-                    score_by_id[cid][key] = None
-
         successful_criteria = sum(1 for item in weighted_criteria if criterion_success.get(item["key"]))
 
         annotated = []
@@ -2098,7 +2096,7 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
             copy = dict(cand)
             if failed_keys and not scored_keys:
                 copy["score_error"] = f"AI scoring failed for: {', '.join(failed_keys)}"
-                copy["total_score"] = None
+                copy["total_score"] = 0
                 copy["score_breakdown"] = {k: v for k, v in normalized.items() if v is not None}
                 copy["score_sequence"] = _build_score_sequence(scored_keys, normalized)
             else:
@@ -2118,7 +2116,7 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
 
         ranked = sorted(
             annotated,
-            key=lambda c: (c.get("total_score", 0), c.get("citation_count", 0), c.get("year", 0)),
+            key=lambda c: (c.get("total_score") or 0, c.get("citation_count") or 0, c.get("year") or 0),
             reverse=True,
         )
         if progress_callback:
@@ -2383,7 +2381,7 @@ def api_discover_rank():
 
     filtered = _filter_discovery_candidates(candidates, year_from, year_to)
     source_counts = _count_source_counts(filtered)
-    total_to_process = min(len(filtered), _RANK_MAX_CANDIDATES)
+    total_to_process = len(filtered)
 
     _set_discovery_progress(
         user_key,
@@ -2448,8 +2446,8 @@ def api_discover_rank():
             user_key,
             stage="failed",
             active=False,
-            processed=min(len(filtered), _RANK_MAX_CANDIDATES),
-            total=min(len(filtered), _RANK_MAX_CANDIDATES),
+            processed=len(filtered),
+            total=len(filtered),
             found=int(sum(source_counts.values())),
             source_counts=source_counts,
             message="Ranking failed.",
