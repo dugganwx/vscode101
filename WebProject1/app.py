@@ -58,6 +58,7 @@ import json
 import time
 import datetime
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import base64
 import tempfile
 import io
@@ -1946,56 +1947,99 @@ def _expand_query_with_ai(query_text, client, deployment):
 
 
 _PREFILTER_THRESHOLD = 20  # min candidates before pre-filter is applied
-_PREFILTER_TARGET = 15     # number of candidates to keep after pre-filtering
+_PREFILTER_BATCH_SIZE = 3   # papers per relevance-check batch
+_PREFILTER_MAX_WORKERS = 10  # parallel LLM calls during batch pre-filter
 
 
 def _prefilter_candidates_with_ai(query_text, candidates, client, deployment):
-    """Use the LLM to select the most query-relevant candidates before full scoring.
+    """Filter candidates to query-relevant ones using parallel batched LLM calls.
 
-    Only activates when len(candidates) > _PREFILTER_THRESHOLD.
-    Returns (selected, excluded).  On any failure returns (candidates, []).
+    Each batch of _PREFILTER_BATCH_SIZE papers gets its own small LLM call asking
+    which (if any) are directly relevant to the query.  All batches run in parallel.
+
+    Returns (selected, excluded, error_message).
+      - selected/excluded are lists of candidates.
+      - error_message is None on success, or a string describing the failure.
+    On AI-unavailable or complete failure, returns (candidates, [], error_message)
+    so the caller can decide whether to surface the error and still rank all papers.
     """
-    if not client or len(candidates) <= _PREFILTER_THRESHOLD:
-        return candidates, []
+    if not client:
+        return candidates, [], "AI endpoint unavailable — pre-filter skipped"
+    if len(candidates) <= _PREFILTER_THRESHOLD:
+        return candidates, [], None  # too few candidates, no-op
 
-    items = []
-    for c in candidates:
-        items.append({
-            "id": c.get("id") or c.get("rid") or "",
-            "title": (c.get("title") or "")[:120],
-            "summary": (c.get("summary") or "")[:80],
-        })
+    candidate_ids = {(c.get("id") or c.get("rid") or "") for c in candidates}
 
-    prompt = (
-        f"You are a research relevance filter. Given a search query and a list of candidate papers "
-        f"(each with an id, title, and brief summary), select the {_PREFILTER_TARGET} papers most "
-        f"relevant to the query. Relevance means the paper directly addresses the query topic.\n\n"
-        f"Query: {query_text}\n\n"
-        f"Candidates:\n{json.dumps(items, ensure_ascii=False)}\n\n"
-        f"Respond with ONLY valid JSON: {{\"selected_ids\": [\"id1\", \"id2\", ...]}}"
-    )
-    try:
+    def check_batch(batch):
+        """Return list of relevant candidate IDs from this batch, or raise on failure."""
+        lines = []
+        for i, c in enumerate(batch, 1):
+            cid = c.get("id") or c.get("rid") or ""
+            title = (c.get("title") or "")[:120]
+            lines.append(f"{i}. [{cid}] {title}")
+        papers_block = "\n".join(lines)
+        prompt = (
+            f"Query: {query_text}\n\n"
+            f"Papers:\n{papers_block}\n\n"
+            f"Which of these papers are directly relevant to the query? "
+            f"A paper is relevant if it directly addresses the query topic. "
+            f"Return ONLY valid JSON: {{\"relevant_ids\": [\"id1\", ...]}} "
+            f"using the exact IDs shown in brackets. "
+            f"If none are relevant, return {{\"relevant_ids\": []}}"
+        )
         completion = client.chat.completions.create(
             model=deployment,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
+            max_tokens=150,
             temperature=0.0,
             response_format={"type": "json_object"},
         )
         raw = (completion.choices[0].message.content or "").strip()
         data = json.loads(raw)
-        selected_ids = set(str(i) for i in (data.get("selected_ids") or []))
-        selected = [c for c in candidates if (c.get("id") or c.get("rid") or "") in selected_ids]
-        excluded = [c for c in candidates if (c.get("id") or c.get("rid") or "") not in selected_ids]
-        # If the LLM returned fewer than expected (e.g. bad IDs), fall through gracefully
-        if not selected:
-            print("[Prefilter] No valid IDs matched — skipping pre-filter")
-            return candidates, []
-        print(f"[Prefilter] {len(candidates)} → {len(selected)} selected, {len(excluded)} excluded")
-        return selected, excluded
-    except Exception as e:
-        print(f"[Prefilter] failed: {e}")
-        return candidates, []
+        ids = [str(i) for i in (data.get("relevant_ids") or [])]
+        # Only return IDs that actually exist in this batch (guard against LLM hallucination)
+        batch_ids = {c.get("id") or c.get("rid") or "" for c in batch}
+        return [rid for rid in ids if rid in batch_ids]
+
+    batches = [candidates[i:i + _PREFILTER_BATCH_SIZE]
+               for i in range(0, len(candidates), _PREFILTER_BATCH_SIZE)]
+    selected_ids = set()
+    batch_errors = []
+
+    with ThreadPoolExecutor(max_workers=_PREFILTER_MAX_WORKERS) as executor:
+        future_to_idx = {executor.submit(check_batch, batch): idx
+                         for idx, batch in enumerate(batches)}
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                selected_ids.update(future.result())
+            except Exception as e:
+                batch = batches[idx]
+                sample = batch[0].get("title", "")[:40] if batch else "?"
+                batch_errors.append(f"batch {idx} ('{sample}...'): {e}")
+
+    print(
+        f"[Prefilter] {len(candidates)} candidates, {len(batches)} batches, "
+        f"{len(batch_errors)} batch errors, {len(selected_ids)} IDs matched"
+    )
+
+    error_message = None
+    if batch_errors:
+        error_message = f"Pre-filter: {len(batch_errors)}/{len(batches)} batches failed — {batch_errors[0]}"
+        print(f"[Prefilter] errors: {batch_errors}")
+
+    # Validate against real candidate IDs (double-check LLM didn't hallucinate)
+    valid_selected = selected_ids & candidate_ids
+
+    if not valid_selected:
+        # Every batch failed or LLM returned no relevant papers
+        no_match_msg = error_message or "Pre-filter: no relevant papers identified — ranking all"
+        return candidates, [], no_match_msg
+
+    selected = [c for c in candidates if (c.get("id") or c.get("rid") or "") in valid_selected]
+    excluded = [c for c in candidates if (c.get("id") or c.get("rid") or "") not in valid_selected]
+    print(f"[Prefilter] → {len(selected)} selected, {len(excluded)} excluded")
+    return selected, excluded, error_message
 
 
 def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, team_id="oie", ranking_run_id=None):
@@ -2733,10 +2777,11 @@ def api_discover_rank():
     filtered = _filter_discovery_candidates(candidates, year_from, year_to)
     source_counts = _count_source_counts(filtered)
 
-    # LLM relevance pre-filter: cut down to top-N most relevant before expensive per-criterion scoring
+    # LLM relevance pre-filter: use batched parallel LLM calls to drop irrelevant papers
     prefilter_applied = False
+    prefilter_error = None
     excluded_by_prefilter = []
-    if filtered and query_text and len(filtered) > _PREFILTER_THRESHOLD:
+    if filtered and query_text:
         _set_discovery_progress(
             user_key,
             stage="pre-filtering",
@@ -2745,17 +2790,21 @@ def api_discover_rank():
             total=len(filtered),
             found=int(sum(source_counts.values())),
             source_counts=source_counts,
-            message=f"Pre-filtering {len(filtered)} candidates for relevance...",
+            message=f"Pre-filtering {len(filtered)} candidates for relevance ({_PREFILTER_BATCH_SIZE} per batch)...",
             query=query_text,
         )
         cfg_pf = _load_azure_config() or {}
         deploy_pf = cfg_pf.get("deployment", "gpt-4o")
         client_pf = _get_azure_client()
-        to_rank, excluded_by_prefilter = _prefilter_candidates_with_ai(query_text, filtered, client_pf, deploy_pf)
+        to_rank, excluded_by_prefilter, prefilter_error = _prefilter_candidates_with_ai(
+            query_text, filtered, client_pf, deploy_pf
+        )
         if excluded_by_prefilter:
             prefilter_applied = True
             filtered = to_rank
             source_counts = _count_source_counts(filtered)
+        if prefilter_error:
+            errors.append(prefilter_error)
 
     total_to_process = len(filtered)
 
