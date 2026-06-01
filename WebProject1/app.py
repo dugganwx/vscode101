@@ -1950,12 +1950,37 @@ _PREFILTER_THRESHOLD = 20  # min candidates before pre-filter is applied
 _PREFILTER_BATCH_SIZE = 3   # papers per relevance-check batch
 _PREFILTER_MAX_WORKERS = 10  # parallel LLM calls during batch pre-filter
 
+# One-line focus description used in the pre-filter relevance prompt per team
+_PREFILTER_TEAM_FOCUS = {
+    "oie": (
+        "OIE - AI on GPU Optimization: GPU utilization, throughput, latency, "
+        "quantization, kernel/runtime optimization, memory efficiency (HBM, KV cache, activations) "
+        "for large-scale AI training and inference."
+    ),
+    "e2o": (
+        "E2O - Network, Switch, Optical: datacenter networking for AI workloads — "
+        "switch architectures, optical interconnects, collective communication (all-reduce, all-to-all), "
+        "fabric scaling, and bandwidth/latency optimization."
+    ),
+    "ai_on_ia": (
+        "AI on iA - Agentic and Head Node CPU Optimization: CPU-side orchestration of agentic AI — "
+        "tool calls, planning loops, multi-agent scheduling, CPU-GPU partitioning, "
+        "serialization overhead, and head-node performance."
+    ),
+    "hickory_delta": (
+        "Hickory Delta - Cache, Reliability, Wafer Scale: cache and memory hierarchy design, "
+        "coherence protocols, wafer-scale integration, reliability/fault tolerance, "
+        "and long-horizon architectural innovations."
+    ),
+}
 
-def _prefilter_candidates_with_ai(query_text, candidates, client, deployment):
+
+def _prefilter_candidates_with_ai(query_text, candidates, client, deployment, team_id=None):
     """Filter candidates to query-relevant ones using parallel batched LLM calls.
 
     Each batch of _PREFILTER_BATCH_SIZE papers gets its own small LLM call asking
-    which (if any) are directly relevant to the query.  All batches run in parallel.
+    which (if any) are directly relevant to the query for the given team's focus.
+    All batches run in parallel.
 
     Returns (selected, excluded, error_message).
       - selected/excluded are lists of candidates.
@@ -1978,11 +2003,16 @@ def _prefilter_candidates_with_ai(query_text, candidates, client, deployment):
             title = (c.get("title") or "")[:120]
             lines.append(f"{i}. [{cid}] {title}")
         papers_block = "\n".join(lines)
+
+        team_focus = _PREFILTER_TEAM_FOCUS.get(team_id or "", "")
+        focus_line = f"Team focus: {team_focus}\n\n" if team_focus else ""
+
         prompt = (
             f"Query: {query_text}\n\n"
+            f"{focus_line}"
             f"Papers:\n{papers_block}\n\n"
-            f"Which of these papers are directly relevant to the query? "
-            f"A paper is relevant if it directly addresses the query topic. "
+            f"Which of these papers are directly relevant to both the query AND the team focus? "
+            f"A paper is relevant if it directly addresses the query topic in a way useful to the team. "
             f"Return ONLY valid JSON: {{\"relevant_ids\": [\"id1\", ...]}} "
             f"using the exact IDs shown in brackets. "
             f"If none are relevant, return {{\"relevant_ids\": []}}"
@@ -2797,7 +2827,7 @@ def api_discover_rank():
         deploy_pf = cfg_pf.get("deployment", "gpt-4o")
         client_pf = _get_azure_client()
         to_rank, excluded_by_prefilter, prefilter_error = _prefilter_candidates_with_ai(
-            query_text, filtered, client_pf, deploy_pf
+            query_text, filtered, client_pf, deploy_pf, team_id=team_id
         )
         if excluded_by_prefilter:
             prefilter_applied = True
