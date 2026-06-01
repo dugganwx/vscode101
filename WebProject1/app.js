@@ -9,7 +9,9 @@ let papers = [];
 let activeFilter = "all";
 let _discoverySourceCounts = { arxiv: 0, openalex: 0, "core-pr": 0 };
 let _discoverySourceErrors = { arxiv: null, openalex: null, "core-pr": null };
+let _discoveryExpandedTerms = []; // LLM-generated synonym queries used in last search
 let _liveCitationCounts = {}; // { paper_id: int | null } — null means could not be retrieved
+let _clipboardPapers = []; // discovery papers added to clipboard; resets on page refresh
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -75,6 +77,18 @@ function _renderDiscoveryCount() {
   };
   const sourceText = `CORE:${fmt("core-pr")} | arXiv:${fmt("arxiv")} | OpenAlex:${fmt("openalex")}`;
   discoveryCountEl.textContent = `${sourceText} | ${discoveredWebPapers.length} results`;
+}
+
+function _renderExpandedTerms() {
+  const el = document.getElementById("discoveryExpandedTerms");
+  if (!el) return;
+  if (!_discoveryExpandedTerms.length) {
+    el.textContent = "";
+    el.hidden = true;
+    return;
+  }
+  el.textContent = `Also searched: ${_discoveryExpandedTerms.map(t => `"${t}"`).join(", ")}`;
+  el.hidden = false;
 }
 
 function _setDiscoveryProgressBar(processed, total, active, text) {
@@ -146,10 +160,11 @@ function slugify(value) {
 }
 
 function groupLabel(group) {
-  if (group === "important") return "Most Important";
-  if (group === "read")      return "Most Read";
-  if (group === "latest")    return "Latest";
-  if (group === "citations") return "Most Citations";
+  if (group === "important")   return "Most Important";
+  if (group === "read")        return "Most Read";
+  if (group === "latest")      return "Latest";
+  if (group === "citations")   return "Most Citations";
+  if (group === "matts_picks") return "Matt's Recommended Reading";
   return group;
 }
 
@@ -1088,8 +1103,10 @@ function renderExpandedCard(paper, libraryViewMode) {
   // Discovery extras
   let extraBtns = "";
   if (paper.isDiscovery) {
+    const inClipboard = _clipboardPapers.some((p) => p.id === paper.id);
     extraBtns = `
       <div class="dl-btn-wrap">
+        <button class="ghost-link clipboard-toggle-btn" type="button" data-id="${paper.id}" title="${inClipboard ? "Remove from clipboard" : "Add to clipboard"}">${inClipboard ? "\u2605 In Clipboard" : "\u2606 Add to Clipboard"}</button>
         <button class="ghost-link add-library-btn" type="button">Add to Library</button>
         <button class="download-meta-btn" type="button">Download Metadata</button>
         <span class="dl-btn-tip" role="tooltip">Think this paper belongs in the library? Download its metadata and email it to the Administrator.</span>
@@ -1104,8 +1121,13 @@ function renderExpandedCard(paper, libraryViewMode) {
     const deleteBtnHtml = (libraryViewMode || hideDeleteInSearchLibrary)
       ? ""
       : `<button class="ghost-link delete-paper-btn" type="button" data-id="${paper.id}">Delete</button>`;
+    const isPicked = paper.groups.includes("matts_picks");
+    const pickBtnHtml = libraryViewMode
+      ? `<button class="ghost-link matts-pick-btn" type="button" data-id="${paper.id}">${isPicked ? "\u2605 Matt\u2019s Pick" : "\u2606 Matt\u2019s Pick"}</button>`
+      : "";
     editBtns = `
       <button class="ghost-link edit-paper-btn" type="button" data-id="${paper.id}">Edit</button>
+      ${pickBtnHtml}
       ${deleteBtnHtml}`;
   }
 
@@ -1178,6 +1200,23 @@ function renderExpandedCard(paper, libraryViewMode) {
     });
   }
 
+  const clipboardToggleBtn = card.querySelector(".clipboard-toggle-btn");
+  if (clipboardToggleBtn) clipboardToggleBtn.addEventListener("click", () => {
+    const idx = _clipboardPapers.findIndex((p) => p.id === paper.id);
+    if (idx === -1) {
+      _clipboardPapers.push(paper);
+    } else {
+      _clipboardPapers.splice(idx, 1);
+    }
+    renderDiscoveryFeed();
+    _renderClipboardPanel();
+    const panel = document.getElementById("clipboardPanel");
+    if (panel && _clipboardPapers.length > 0 && !panel.classList.contains("is-open")) {
+      panel.classList.add("is-open");
+      panel.setAttribute("aria-hidden", "false");
+    }
+  });
+
   const editBtn = card.querySelector(".edit-paper-btn");
   if (editBtn) editBtn.addEventListener("click", () => showEditForm(paper, card));
 
@@ -1185,6 +1224,21 @@ function renderExpandedCard(paper, libraryViewMode) {
   if (deleteBtn) deleteBtn.addEventListener("click", async () => {
     if (!confirm(`Delete "${paper.title}"? This removes the PDF and metadata permanently.`)) return;
     try { await deletePaperById(paper.id); } catch (e) { alert("Delete failed: " + e.message); }
+  });
+
+  const mattsPickBtn = card.querySelector(".matts-pick-btn");
+  if (mattsPickBtn) mattsPickBtn.addEventListener("click", async () => {
+    const isPicked = paper.groups.includes("matts_picks");
+    const newGroups = isPicked
+      ? paper.groups.filter((g) => g !== "matts_picks")
+      : [...paper.groups, "matts_picks"];
+    mattsPickBtn.disabled = true;
+    try {
+      await updatePaperMetadata(paper.id, { groups: newGroups });
+    } catch (e) {
+      alert("Failed to update Matt\u2019s Pick: " + e.message);
+      mattsPickBtn.disabled = false;
+    }
   });
 
   // Generate Infographic button (Library View — infographic only)
@@ -1360,6 +1414,8 @@ async function handleFindNewPapers() {
   _discoveryEmptyReason = "";
   _discoverySourceCounts = { arxiv: 0, openalex: 0, "core-pr": 0 };
   _discoverySourceErrors = { arxiv: null, openalex: null, "core-pr": null };
+  _discoveryExpandedTerms = [];
+  _renderExpandedTerms();
   renderDiscoveryFeed();
   _setDiscoveryProgressBar(0, 0, false, "Searching sources only. Click one team rank button after results appear.");
 
@@ -1385,6 +1441,8 @@ async function handleFindNewPapers() {
     _discoveryEmptyReason = data.empty_reason || "";
     _discoverySourceCounts = data.source_counts || { arxiv: 0, openalex: 0, "core-pr": 0 };
     _discoverySourceErrors = data.source_errors || { arxiv: null, openalex: null, "core-pr": null };
+    _discoveryExpandedTerms = Array.isArray(data.expanded_terms) ? data.expanded_terms : [];
+    _renderExpandedTerms();
     const appliedYearFrom = Number.isInteger(data.applied_year_from)
       ? String(data.applied_year_from)
       : yearFrom;
@@ -1399,6 +1457,7 @@ async function handleFindNewPapers() {
     if (discoveryQueryEl && data.query) {
       discoveryQueryEl.textContent = `Found ${results.length} source papers for "${data.query}" | Years: ${appliedYearFrom}-${appliedYearTo}`;
     }
+    _renderExpandedTerms();
 
     discoveredWebPapers = results;
 
@@ -1714,6 +1773,200 @@ function bindBBoxModal() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
+// ── Clipboard ──────────────────────────────────────────────────────────────
+
+function _renderClipboardPanel() {
+  const panel       = document.getElementById("clipboardPanel");
+  const countEl     = document.getElementById("clipboardCount");
+  const badgeEl     = document.getElementById("clipboardCountBadge");
+  const listEl      = document.getElementById("clipboardList");
+  const emptyMsg    = document.getElementById("clipboardEmptyMsg");
+  const downloadBtn = document.getElementById("clipboardDownloadBtn");
+  const reportBtn   = document.getElementById("clipboardReportBtn");
+  if (!panel) return;
+
+  const n = _clipboardPapers.length;
+  if (countEl)     countEl.textContent = n;
+  if (badgeEl)     badgeEl.textContent = n;
+  if (downloadBtn) downloadBtn.disabled = n === 0;
+  if (reportBtn)   reportBtn.disabled   = n === 0;
+  if (emptyMsg)    emptyMsg.style.display = n === 0 ? "" : "none";
+  if (listEl) {
+    listEl.innerHTML = _clipboardPapers.map((p, i) => `
+      <li class="clipboard-item">
+        <span class="clipboard-item-title" title="${escapeHtml(p.title)}">${escapeHtml(p.title)}</span>
+        <button class="clipboard-remove-btn" type="button" data-idx="${i}" aria-label="Remove">&#x2715;</button>
+      </li>`).join("");
+    listEl.querySelectorAll(".clipboard-remove-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        _clipboardPapers.splice(parseInt(btn.dataset.idx, 10), 1);
+        renderDiscoveryFeed();
+        _renderClipboardPanel();
+      });
+    });
+  }
+}
+
+function _initClipboardDrag() {
+  const panel  = document.getElementById("clipboardPanel");
+  const handle = panel?.querySelector(".clipboard-drag-handle");
+  if (!panel || !handle) return;
+
+  let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (e.target.closest("button")) return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    startX = e.clientX; startY = e.clientY;
+    startLeft = rect.left; startTop = rect.top;
+    panel.style.right  = "auto";
+    panel.style.bottom = "auto";
+    panel.style.left   = startLeft + "px";
+    panel.style.top    = startTop  + "px";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    panel.style.left = Math.max(0, startLeft + (e.clientX - startX)) + "px";
+    panel.style.top  = Math.max(0, startTop  + (e.clientY - startY)) + "px";
+  });
+  document.addEventListener("mouseup", () => { dragging = false; });
+}
+
+async function _downloadClipboardZip() {
+  const btn = document.getElementById("clipboardDownloadBtn");
+  const origText = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Downloading\u2026"; }
+  try {
+    const res = await fetch("/api/clipboard/download-zip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        papers: _clipboardPapers.map((p) => ({ id: p.id, title: p.title, pdf_url: p.pdf_url })),
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "clipboard_papers.zip";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Download failed: " + e.message);
+  } finally {
+    if (btn) { btn.disabled = _clipboardPapers.length === 0; btn.textContent = origText; }
+  }
+}
+
+function _openReportModal() {
+  const modal  = document.getElementById("reportModal");
+  const output = document.getElementById("reportOutput");
+  const copyBtn = document.getElementById("copyReportBtn");
+  if (!modal) return;
+  if (output)  output.textContent = "";
+  if (copyBtn) { copyBtn.disabled = true; copyBtn.textContent = "Copy Report"; }
+  modal.classList.add("is-open");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+async function _generateReport() {
+  const modal  = document.getElementById("reportModal");
+  const output = document.getElementById("reportOutput");
+  const copyBtn = document.getElementById("copyReportBtn");
+  const genBtn  = document.getElementById("generateReportBtn");
+  const modeEl  = modal?.querySelector("input[name='reportMode']:checked");
+  const mode    = modeEl?.value || "summary";
+
+  if (output)  output.innerHTML = '<span class="spinner"></span> Generating report\u2026';
+  if (genBtn)  genBtn.disabled  = true;
+  if (copyBtn) copyBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/clipboard/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode,
+        papers: _clipboardPapers.map((p) => ({
+          title: p.title, authors: p.authors, year: p.year,
+          summary: p.summary, datacenter: p.datacenter, metrics: p.metrics,
+        })),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (output) output.textContent = data.report || "";
+    if (copyBtn) copyBtn.disabled = false;
+  } catch (e) {
+    if (output) output.textContent = "Error: " + e.message;
+  } finally {
+    if (genBtn) genBtn.disabled = false;
+  }
+}
+
+function _initClipboard() {
+  _initClipboardDrag();
+  _renderClipboardPanel();
+
+  const panel    = document.getElementById("clipboardPanel");
+  const toggleBtn = document.getElementById("clipboardToggleBtn");
+  const closeBtn  = document.getElementById("clipboardCloseBtn");
+  if (toggleBtn && panel) {
+    toggleBtn.addEventListener("click", () => {
+      const open = panel.classList.toggle("is-open");
+      panel.setAttribute("aria-hidden", String(!open));
+    });
+  }
+  if (closeBtn && panel) {
+    closeBtn.addEventListener("click", () => {
+      panel.classList.remove("is-open");
+      panel.setAttribute("aria-hidden", "true");
+    });
+  }
+
+  const downloadBtn = document.getElementById("clipboardDownloadBtn");
+  if (downloadBtn) downloadBtn.addEventListener("click", _downloadClipboardZip);
+
+  const reportBtn = document.getElementById("clipboardReportBtn");
+  if (reportBtn) reportBtn.addEventListener("click", _openReportModal);
+
+  const genBtn = document.getElementById("generateReportBtn");
+  if (genBtn) genBtn.addEventListener("click", _generateReport);
+
+  const copyBtn = document.getElementById("copyReportBtn");
+  if (copyBtn) copyBtn.addEventListener("click", () => {
+    const output = document.getElementById("reportOutput");
+    if (output?.textContent) {
+      navigator.clipboard.writeText(output.textContent)
+        .then(() => { copyBtn.textContent = "Copied!"; setTimeout(() => { copyBtn.textContent = "Copy Report"; }, 2000); })
+        .catch(() => alert("Copy failed — please select and copy the text manually."));
+    }
+  });
+
+  const reportModal     = document.getElementById("reportModal");
+  const reportCloseBtn  = document.getElementById("reportModalCloseBtn");
+  if (reportCloseBtn && reportModal) {
+    reportCloseBtn.addEventListener("click", () => {
+      reportModal.classList.remove("is-open");
+      reportModal.setAttribute("aria-hidden", "true");
+    });
+  }
+  if (reportModal) {
+    reportModal.addEventListener("click", (e) => {
+      if (e.target === reportModal) {
+        reportModal.classList.remove("is-open");
+        reportModal.setAttribute("aria-hidden", "true");
+      }
+    });
+  }
+}
+
 function init() {
   // Page navigation
   document.querySelectorAll(".nav-btn[data-page]").forEach((btn) => {
@@ -1769,6 +2022,9 @@ function init() {
 
   // Manual bbox modal
   bindBBoxModal();
+
+  // Clipboard panel
+  _initClipboard();
 
   // Library search input (debounced)
   if (librarySearchInput) {

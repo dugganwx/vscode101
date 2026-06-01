@@ -33,16 +33,27 @@
     <!-- ── Page 1: AI Paper Discovery Zone ──────────────────────────── -->
     <section id="page-discovery" class="page-section page-active" role="tabpanel">
       <div class="page-container">
-        <h2 class="page-title">AI Paper Discovery Zone</h2>
+        <div class="discovery-title-row">
+          <h2 class="page-title">AI Paper Discovery Zone</h2>
+          <div class="visit-counter" id="visitCounter" title="Total site visits">👁 <span id="visitCount">—</span> visits</div>
+          <img class="discovery-pico" src="AI papers for WebProject1/Pico1.jpg" alt="Pico" />
+          <div class="ranking-criteria-pill-group" aria-label="Team ranking question sets">
+            <button id="rankingCriteriaPillOieBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="oie">OIE Questions</button>
+            <button id="rankingCriteriaPillE2oBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="e2o">E2O Questions</button>
+            <button id="rankingCriteriaPillAiOnIaBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="ai_on_ia">AI on iA Questions</button>
+            <button id="rankingCriteriaPillHickoryBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="hickory_delta">Hickory Delta Questions</button>
+          </div>
+        </div>
         <p id="discoveryQuery" class="discovery-copy"></p>
+        <p id="discoveryExpandedTerms" class="discovery-copy discovery-expanded-terms" hidden></p>
 
         <div class="discovery-search-bar">
           <input id="discoverySearchInput" class="search-input-full" type="search"
                  placeholder="Search for AI papers&hellip; e.g. &ldquo;MoE routing efficiency&rdquo;"
                  aria-label="AI paper search query" autocomplete="off" />
           <div class="find-btn-wrap">
-            <button id="findNewPapersBtn" class="nav-btn discovery-btn" type="button">Search</button>
-            <span class="find-btn-tip" role="tooltip">AI-powered paper discovery: uses Azure OpenAI to recommend papers, validates with Semantic Scholar, and supplements with OpenAlex. Results appear here — not added to your library.</span>
+            <button id="findNewPapersBtn" class="nav-btn discovery-btn" type="button">Search Sources</button>
+            <span class="find-btn-tip" role="tooltip">Searches CORE Paper Repository, OpenAlex, and arXiv and immediately shows unranked source-tagged results.</span>
           </div>
         </div>
 
@@ -55,6 +66,8 @@
           <button class="topic-pill" type="button" data-query="quantization compression pruning efficient LLM deployment">Quantization &amp; Compression</button>
           <button class="topic-pill" type="button" data-query="KV cache memory optimization flash attention transformer">Memory &amp; KV Cache</button>
           <button class="topic-pill" type="button" data-query="datacenter interconnect NVLink networking optical AI cluster">Interconnects &amp; Networking</button>
+          <button class="topic-pill" type="button" data-query="distributed weight data parallelism DWDP tensor model pipeline parallelism LLM training">Distributed Weight Data Parallelism</button>
+          <button class="topic-pill" type="button" data-query="collectives acceleration all-reduce all-gather scatter reduce AI distributed training hardware">Collectives Acceleration</button>
         </div>
 
         <!-- Year range slider -->
@@ -65,24 +78,68 @@
             <input type="range" id="yearTo" class="year-slider year-slider-to" min="2020" max="2026" value="2026" step="1" />
           </div>
           <div class="year-labels">
-            <span id="yearFromLabel" class="year-label">2020</span>
-            <span id="yearToLabel" class="year-label">2026</span>
+            <span class="year-label">2020</span>
+            <span class="year-label">2021</span>
+            <span class="year-label">2022</span>
+            <span class="year-label">2023</span>
+            <span class="year-label">2024</span>
+            <span class="year-label">2025</span>
+            <span class="year-label">2026</span>
           </div>
         </div>
 
         <div class="discovery-status-row">
           <span id="discoveryCount" class="feed-count"></span>
-          <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready</span>
+          <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready to search.</span>
+        </div>
+
+        <div class="discovery-rank-row">
+          <button id="rankOieBtn" class="nav-btn rank-papers-btn" type="button" data-team="oie" disabled>Rank OIE</button>
+          <button id="rankE2oBtn" class="nav-btn rank-papers-btn" type="button" data-team="e2o" disabled>Rank E2O</button>
+          <button id="rankAiOnIaBtn" class="nav-btn rank-papers-btn" type="button" data-team="ai_on_ia" disabled>Rank AI on iA</button>
+          <button id="rankHickoryBtn" class="nav-btn rank-papers-btn" type="button" data-team="hickory_delta" disabled>Rank Hickory Delta</button>
+          <button id="clipboardToggleBtn" class="nav-btn clipboard-toggle-nav-btn" type="button" title="Open/close clipboard">&#128203; Clipboard (<span id="clipboardCountBadge">0</span>)</button>
+        </div>
+
+        <div id="discoveryProgressWrap" class="discovery-progress-wrap" aria-live="polite">
+          <div class="discovery-progress-track" role="progressbar" aria-label="AI ranking progress">
+            <div id="discoveryProgressFill" class="discovery-progress-fill" style="width: 0%"></div>
+          </div>
+          <div id="discoveryProgressText" class="discovery-progress-text">Search first, then click Rank Papers.</div>
         </div>
 
         <div id="discoveryFeed" class="card-grid" aria-label="AI-powered search result cards"></div>
       </div>
     </section>
 
+    <section id="page-discovery-criteria" class="page-section" role="tabpanel">
+      <div class="page-container">
+        <div class="discovery-title-row">
+          <h2 id="rankingCriteriaTitle" class="page-title">Discovery Ranking Criteria</h2>
+          <div class="criteria-page-actions">
+            <button id="resetRankingCriteriaBtn" class="nav-btn" type="button">Reset to Defaults</button>
+            <button id="backToDiscoveryBtn" class="nav-btn" type="button">Back to AI Paper Discovery Zone</button>
+          </div>
+        </div>
+        <p id="rankingCriteriaCopy" class="discovery-copy">These are the scoring questions and weights currently used to rank discovered papers.</p>
+        <div class="criteria-panel">
+          <div class="criteria-header-row">
+            <span class="criteria-header-label">Question</span>
+            <span class="criteria-header-slider">Importance (0-10)</span>
+            <span class="criteria-header-weight">Weight</span>
+          </div>
+          <div id="rankingCriteriaList" class="criteria-list" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- ── Page 2: Search Library ───────────────────────────────────── -->
     <section id="page-search-library" class="page-section" role="tabpanel">
       <div class="page-container">
-        <h2 class="page-title">Search Library</h2>
+        <div class="discovery-title-row">
+          <h2 class="page-title">Search Library</h2>
+          <img class="discovery-pico" src="AI papers for WebProject1/Pico1.jpg" alt="Pico" />
+        </div>
 
         <div class="library-search-bar">
           <span class="search-icon" aria-hidden="true">
@@ -94,8 +151,10 @@
           <span id="librarySearchCount" class="feed-count" aria-live="polite"></span>
         </div>
 
-        <details class="upload-panel-page" open aria-label="Upload a new paper">
-          <summary class="feed-title-row"><h2>Upload Paper</h2></summary>
+        <div id="librarySearchFeed" class="card-grid" aria-label="Library search results"></div>
+
+        <details class="upload-panel-page" aria-label="Upload a new paper">
+          <summary class="feed-title-row"><h2>Upload New Papers to the Library</h2></summary>
           <form id="uploadPaperForm" class="upload-form" enctype="multipart/form-data">
             <div class="upload-fields">
               <label class="edit-label">PDF File
@@ -120,8 +179,6 @@
             </div>
           </form>
         </details>
-
-        <div id="librarySearchFeed" class="card-grid" aria-label="Library search results"></div>
       </div>
     </section>
 
@@ -140,6 +197,11 @@
           </div>
           <button class="filter-btn" data-filter="read">Most Read</button>
           <button class="filter-btn" data-filter="latest">Latest</button>
+          <button class="filter-btn" data-filter="citations">Most Citations</button>
+          <div class="important-btn-wrap">
+            <button class="filter-btn" data-filter="matts_picks">Matt's Recommended Reading</button>
+            <span class="important-btn-tip" role="tooltip">Papers hand-picked by Matt. To add or remove a paper, expand its card in Library View and click the ☆ Matt's Pick button.</span>
+          </div>
         </div>
 
         <div class="library-status-row">
@@ -159,6 +221,71 @@
     <footer class="footer-note">
       <p>AI Architecture Papers Portal — Flask backend with SQLite storage, server-side discovery, and live folder watcher.</p>
     </footer>
+
+    <div id="bboxEditorModal" class="bbox-modal" aria-hidden="true">
+      <div class="bbox-modal-dialog" role="dialog" aria-modal="true" aria-label="Manual crop editor">
+        <div class="bbox-modal-header">
+          <h3>Manual Crop Editor</h3>
+          <button id="bboxModalCloseBtn" class="bbox-modal-close" type="button" aria-label="Close manual crop editor">Close</button>
+        </div>
+        <p class="bbox-modal-copy">Browse paper pages, then draw a rectangle over the target figure. Use Shift + arrow keys for larger nudge steps.</p>
+        <div class="bbox-modal-nav" aria-label="PDF page controls">
+          <button id="bboxModalPrevPageBtn" class="bbox-modal-btn" type="button">Prev Page</button>
+          <span id="bboxModalPageLabel" class="bbox-modal-page-label">Page 1 of 1</span>
+          <button id="bboxModalNextPageBtn" class="bbox-modal-btn" type="button">Next Page</button>
+        </div>
+        <div class="bbox-modal-image-wrap">
+          <div class="bbox-modal-image-stage">
+            <img id="bboxModalImage" class="bbox-modal-image" alt="Figure for manual crop editing" draggable="false" />
+            <div id="bboxModalOverlay" class="bbox-overlay bbox-overlay-modal" tabindex="0" aria-label="Modal figure crop editor">
+              <div id="bboxModalRect" class="bbox-rect" style="display:none;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="bbox-modal-actions">
+          <button id="bboxModalResetBtn" class="bbox-modal-btn" type="button">Reset to Original</button>
+          <button id="bboxModalClearBtn" class="bbox-modal-btn" type="button">Clear</button>
+          <button id="bboxModalCancelBtn" class="bbox-modal-btn" type="button">Cancel</button>
+          <button id="bboxModalSaveBtn" class="bbox-modal-btn bbox-modal-btn-primary" type="button">Save Crop</button>
+        </div>
+        <div id="bboxModalStatus" class="bbox-modal-status" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <!-- ── Clipboard Panel ──────────────────────────────────────────── -->
+    <div id="clipboardPanel" class="clipboard-panel" aria-hidden="true">
+      <div class="clipboard-header clipboard-drag-handle">
+        <span class="clipboard-title">&#128203; Clipboard (<span id="clipboardCount">0</span>)</span>
+        <button id="clipboardCloseBtn" class="clipboard-close-btn" type="button" aria-label="Close clipboard">&#x2715;</button>
+      </div>
+      <p id="clipboardEmptyMsg" class="clipboard-empty-msg">No papers added yet. Use the &#9734; button on discovery cards.</p>
+      <ul id="clipboardList" class="clipboard-list" aria-label="Clipboard papers"></ul>
+      <div class="clipboard-footer">
+        <button id="clipboardDownloadBtn" class="nav-btn" type="button" disabled>Download All PDFs</button>
+        <button id="clipboardReportBtn" class="nav-btn" type="button" disabled>Generate Report</button>
+      </div>
+    </div>
+
+    <!-- ── Report Modal ─────────────────────────────────────────────── -->
+    <div id="reportModal" class="report-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle">
+      <div class="report-modal-dialog">
+        <div class="report-modal-header">
+          <h3 id="reportModalTitle">AI Paper Report</h3>
+          <button id="reportModalCloseBtn" class="clipboard-close-btn" type="button" aria-label="Close report">&#x2715;</button>
+        </div>
+        <p class="report-modal-copy">Select a report type, then click Generate. The report is based on each paper's title, abstract, and key metrics.</p>
+        <div class="report-mode-row" role="group" aria-label="Report type">
+          <label class="report-mode-label"><input type="radio" name="reportMode" value="summary" checked /> Individual Summaries</label>
+          <label class="report-mode-label"><input type="radio" name="reportMode" value="synthesis" /> Synthesis</label>
+          <label class="report-mode-label"><input type="radio" name="reportMode" value="comparison" /> Comparison</label>
+        </div>
+        <div class="report-modal-actions">
+          <button id="generateReportBtn" class="nav-btn" type="button">Generate Report</button>
+          <button id="copyReportBtn" class="ghost-link" type="button" disabled>Copy Report</button>
+        </div>
+        <div id="reportOutput" class="report-output" aria-live="polite"></div>
+      </div>
+    </div>
 
     <script src="app.js"></script>
     <script>
