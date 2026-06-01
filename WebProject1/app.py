@@ -60,13 +60,15 @@ import datetime
 import threading
 import base64
 import tempfile
+import io
+import zipfile
 import sqlite3
 import uuid
 from xml.etree import ElementTree as ET
 from queue import Queue, Empty
 
 from flask import (
-    Flask, jsonify, request, send_from_directory,
+    Flask, jsonify, request, send_from_directory, send_file,
     Response, stream_with_context, abort, redirect, url_for
 )
 from werkzeug.utils import secure_filename
@@ -1908,6 +1910,94 @@ def _build_score_sequence(active_keys, score_breakdown):
     return seq
 
 
+def _expand_query_with_ai(query_text, client, deployment):
+    """Use the LLM to generate 4-6 alternative search terms for `query_text`.
+
+    Returns a list of synonym/variant strings, or [] if AI is unavailable or fails.
+    """
+    if not client or not query_text:
+        return []
+    prompt = (
+        "You are a search query expansion assistant. Given a technical research search query, "
+        "output 4 to 6 alternative search terms or closely related phrases that would help "
+        "find relevant papers on the same topic. Focus on synonyms, acronyms, and closely "
+        "related technical concepts. Do not include the original query.\n\n"
+        "Respond with ONLY valid JSON in this exact format: "
+        "{\"terms\": [\"term1\", \"term2\", \"term3\"]}\n\n"
+        f"Query: {query_text}"
+    )
+    try:
+        completion = client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150,
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        data = json.loads(raw)
+        terms = data.get("terms") or []
+        terms = [str(t).strip() for t in terms if str(t).strip()]
+        print(f"[QueryExpand] '{query_text}' → {terms}")
+        return terms[:6]
+    except Exception as e:
+        print(f"[QueryExpand] failed: {e}")
+        return []
+
+
+_PREFILTER_THRESHOLD = 20  # min candidates before pre-filter is applied
+_PREFILTER_TARGET = 15     # number of candidates to keep after pre-filtering
+
+
+def _prefilter_candidates_with_ai(query_text, candidates, client, deployment):
+    """Use the LLM to select the most query-relevant candidates before full scoring.
+
+    Only activates when len(candidates) > _PREFILTER_THRESHOLD.
+    Returns (selected, excluded).  On any failure returns (candidates, []).
+    """
+    if not client or len(candidates) <= _PREFILTER_THRESHOLD:
+        return candidates, []
+
+    items = []
+    for c in candidates:
+        items.append({
+            "id": c.get("id") or c.get("rid") or "",
+            "title": (c.get("title") or "")[:120],
+            "summary": (c.get("summary") or "")[:80],
+        })
+
+    prompt = (
+        f"You are a research relevance filter. Given a search query and a list of candidate papers "
+        f"(each with an id, title, and brief summary), select the {_PREFILTER_TARGET} papers most "
+        f"relevant to the query. Relevance means the paper directly addresses the query topic.\n\n"
+        f"Query: {query_text}\n\n"
+        f"Candidates:\n{json.dumps(items, ensure_ascii=False)}\n\n"
+        f"Respond with ONLY valid JSON: {{\"selected_ids\": [\"id1\", \"id2\", ...]}}"
+    )
+    try:
+        completion = client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        data = json.loads(raw)
+        selected_ids = set(str(i) for i in (data.get("selected_ids") or []))
+        selected = [c for c in candidates if (c.get("id") or c.get("rid") or "") in selected_ids]
+        excluded = [c for c in candidates if (c.get("id") or c.get("rid") or "") not in selected_ids]
+        # If the LLM returned fewer than expected (e.g. bad IDs), fall through gracefully
+        if not selected:
+            print("[Prefilter] No valid IDs matched — skipping pre-filter")
+            return candidates, []
+        print(f"[Prefilter] {len(candidates)} → {len(selected)} selected, {len(excluded)} excluded")
+        return selected, excluded
+    except Exception as e:
+        print(f"[Prefilter] failed: {e}")
+        return candidates, []
+
+
 def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, team_id="oie", ranking_run_id=None):
     cfg = _get_session_ranking_config(team_id)
     active_keys = cfg["keys"]
@@ -2135,6 +2225,66 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
         return ranked
 
 
+def _normalize_title(title):
+    """Lowercase, strip punctuation/whitespace for title comparison."""
+    return " ".join(re.findall(r"[a-z0-9]+", (title or "").lower()))
+
+
+def _dedup_candidates_by_title(candidates):
+    """Merge candidates across sources that refer to the same paper by title similarity.
+    Keeps the record with the highest citation_count; on ties prefers openalex > arxiv > core-pr.
+    Merges the `sources` lists so provenance is preserved."""
+    SOURCE_PRIORITY = {"openalex": 0, "arxiv": 1, "core-pr": 2}
+    groups = []   # list of lists of candidate indices
+    indexed = []  # (normalized_title_tokens, candidate_idx)
+
+    for idx, cand in enumerate(candidates):
+        norm = _normalize_title(cand.get("title", ""))
+        tokens = set(norm.split())
+        if not tokens:
+            groups.append([idx])
+            continue
+        merged = False
+        for group in groups:
+            rep_tokens = set(_normalize_title(candidates[group[0]].get("title", "")).split())
+            if not rep_tokens:
+                continue
+            overlap = len(tokens & rep_tokens) / max(len(tokens), len(rep_tokens))
+            if overlap >= 0.85:
+                group.append(idx)
+                merged = True
+                break
+        if not merged:
+            groups.append([idx])
+
+    result = []
+    for group in groups:
+        if len(group) == 1:
+            result.append(candidates[group[0]])
+            continue
+        # Pick best: highest citation_count, ties broken by source priority
+        best = max(
+            (candidates[i] for i in group),
+            key=lambda c: (
+                int(c.get("citation_count") or 0),
+                -SOURCE_PRIORITY.get((c.get("source") or "").lower(), 99),
+            ),
+        )
+        # Merge sources list
+        all_sources = []
+        seen_src = set()
+        for i in group:
+            for s in (candidates[i].get("sources") or [candidates[i].get("source", "")]):
+                if s and s not in seen_src:
+                    all_sources.append(s)
+                    seen_src.add(s)
+        merged_cand = dict(best)
+        merged_cand["sources"] = all_sources
+        result.append(merged_cand)
+
+    return result
+
+
 def _store_external_candidates(candidates, indexed_query):
     for cand in candidates:
         payload = dict(cand)
@@ -2142,8 +2292,15 @@ def _store_external_candidates(candidates, indexed_query):
         upsert_external_paper(payload)
 
 
-def _build_external_index(query_text, year_from, year_to, source_progress_callback=None):
-    seeds = [query_text] if query_text else []
+def _build_external_index(seeds, year_from, year_to, source_progress_callback=None):
+    """Fetch candidates from all sources for each seed query, deduplicate by title, and store.
+
+    `seeds` is a list of query strings (the original query plus any LLM-expanded terms).
+    Returns (all_candidates, source_errors).
+    """
+    if isinstance(seeds, str):
+        # Backwards-compat: accept a plain query string
+        seeds = [seeds] if seeds else []
     all_candidates = []
     source_counts = {"core-pr": 0, "openalex": 0, "arxiv": 0}
     source_errors = {"core-pr": None, "openalex": None, "arxiv": None}
@@ -2172,11 +2329,15 @@ def _build_external_index(query_text, year_from, year_to, source_progress_callba
         if source_progress_callback:
             source_progress_callback(dict(source_counts))
 
-    # Debug mode behavior: keep raw source candidates without cross-source title merge.
-    # This helps diagnose whether merge dedup is hiding expected results.
-    print(f"[Index] Raw candidates (no merge): {len(all_candidates)} total, source_counts={source_counts}")
-    _store_external_candidates(all_candidates, query_text or "")
-    return all_candidates, source_errors
+    print(f"[Index] Raw candidates: {len(all_candidates)} total, source_counts={source_counts}")
+
+    # Deduplicate by title similarity across sources
+    deduped = _dedup_candidates_by_title(all_candidates)
+    print(f"[Index] After title dedup: {len(deduped)} (removed {len(all_candidates) - len(deduped)})")
+
+    primary_query = seeds[0] if seeds else ""
+    _store_external_candidates(deduped, primary_query)
+    return deduped, source_errors
 
 
 def _index_refresh_loop():
@@ -2184,7 +2345,7 @@ def _index_refresh_loop():
     while True:
         try:
             with _index_lock:
-                _build_external_index("", 2020, datetime.datetime.now().year)
+                _build_external_index([], 2020, datetime.datetime.now().year)
                 _last_index_refresh = time.time()
         except Exception as e:
             print(f"  [Index] background refresh failed: {e}")
@@ -2332,9 +2493,113 @@ def api_citation_counts():
     return jsonify(result)
 
 
+@app.route("/api/clipboard/download-zip", methods=["POST"])
+@login_required
+def api_clipboard_download_zip():
+    """Bundle PDFs for clipboard papers into a ZIP archive and return it."""
+    data = request.get_json(silent=True) or {}
+    papers = data.get("papers", [])
+    if not papers:
+        return jsonify({"error": "No papers provided"}), 400
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zfile:
+        for paper in papers:
+            pdf_url = (paper.get("pdf_url") or "").strip()
+            title = (paper.get("title") or paper.get("id") or "paper").strip()
+            safe_name = slugify(title)
+            if not pdf_url:
+                zfile.writestr(safe_name + "_error.txt", "No PDF URL available for this paper.")
+                continue
+            tmp_path, err = _download_pdf_to_temp(pdf_url)
+            if not tmp_path:
+                zfile.writestr(safe_name + "_error.txt", f"Download failed: {err}")
+                continue
+            try:
+                with open(tmp_path, "rb") as f:
+                    zfile.writestr(safe_name + ".pdf", f.read())
+            except Exception as e:
+                zfile.writestr(safe_name + "_error.txt", f"Read error: {e}")
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip",
+                     download_name="clipboard_papers.zip", as_attachment=True)
+
+
+@app.route("/api/clipboard/report", methods=["POST"])
+@login_required
+def api_clipboard_report():
+    """Generate an LLM one-page report for a set of discovery papers."""
+    data = request.get_json(silent=True) or {}
+    papers = data.get("papers", [])
+    mode = data.get("mode", "summary")
+    if not papers:
+        return jsonify({"error": "No papers provided"}), 400
+
+    client = _get_azure_client()
+    if client is None:
+        return jsonify({"error": "AI service is not configured"}), 503
+
+    cfg = _load_azure_config() or {}
+    deployment = cfg.get("deployment", "gpt-4o")
+
+    system_prompts = {
+        "summary": (
+            "You are a research assistant. Write a concise one-page report "
+            "containing a clear individual summary for each of the papers listed below. "
+            "For each paper write a short paragraph covering: what it does, key findings, "
+            "and relevance to datacenter AI. Use the paper title as a heading."
+        ),
+        "synthesis": (
+            "You are a research assistant. Write a concise one-page synthesis report "
+            "that identifies the major shared themes, trends, and collective insights "
+            "across all the papers listed below. Do not summarize papers individually; "
+            "synthesize them into a unified narrative."
+        ),
+        "comparison": (
+            "You are a research assistant. Write a concise one-page comparison report "
+            "for the papers listed below. Highlight key differences in approach, "
+            "methodology, results, and practical implications. Use a structured format "
+            "that makes contrasts easy to read at a glance."
+        ),
+    }
+    system_prompt = system_prompts.get(mode, system_prompts["summary"])
+
+    paper_blocks = []
+    for i, p in enumerate(papers, 1):
+        block = f"Paper {i}: {p.get('title', 'Unknown')}\n"
+        if p.get("authors"):    block += f"Authors: {p['authors']}\n"
+        if p.get("year"):       block += f"Year: {p['year']}\n"
+        if p.get("summary"):    block += f"Summary: {p['summary']}\n"
+        if p.get("datacenter"): block += f"Datacenter Relevance: {p['datacenter']}\n"
+        if p.get("metrics"):    block += f"Key Metrics: {p['metrics']}\n"
+        paper_blocks.append(block)
+    user_content = "Papers:\n\n" + "\n---\n".join(paper_blocks)
+
+    try:
+        completion = client.chat.completions.create(
+            model=deployment,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_content},
+            ],
+            max_tokens=1500,
+            temperature=0.3,
+        )
+        report_text = completion.choices[0].message.content or ""
+        return jsonify({"report": report_text, "mode": mode, "paper_count": len(papers)})
+    except Exception as e:
+        return jsonify({"error": f"Report generation failed: {e}"}), 500
+
+
 @app.route("/api/discover/search", methods=["GET"])
 @login_required
 def api_discover_search():
+    query_text = request.args.get("q", "").strip()
     year_from = _parse_year_param(request.args.get("year_from", "2020", type=str), 2020)
     year_to = _parse_year_param(request.args.get("year_to", "2026", type=str), 2026)
     if year_from > year_to:
@@ -2371,6 +2636,17 @@ def api_discover_search():
     errors = []
     indexed = []
     source_errors = {"core-pr": None, "openalex": None, "arxiv": None}
+    expanded_terms = []
+
+    # LLM query expansion — generates synonym/variant search terms
+    cfg = _load_azure_config() or {}
+    deployment = cfg.get("deployment", "gpt-4o")
+    client = _get_azure_client()
+    if client:
+        expanded_terms = _expand_query_with_ai(query_text, client, deployment)
+
+    seeds = [query_text] + expanded_terms
+
     try:
         with _index_lock:
             def _source_progress_update(source_counts):
@@ -2386,7 +2662,7 @@ def api_discover_search():
                     query=query_text,
                 )
 
-            indexed, source_errors = _build_external_index(query_text, year_from, year_to, source_progress_callback=_source_progress_update)
+            indexed, source_errors = _build_external_index(seeds, year_from, year_to, source_progress_callback=_source_progress_update)
     except Exception as e:
         errors.append(f"Index build: {e}")
 
@@ -2422,6 +2698,7 @@ def api_discover_search():
         "index_count": len(filtered),
         "source_counts": source_counts,
         "source_errors": source_errors,
+        "expanded_terms": expanded_terms,
         "top_k": len(filtered),
         "errors": errors,
         "empty_reason": empty_reason,
@@ -2455,6 +2732,31 @@ def api_discover_rank():
 
     filtered = _filter_discovery_candidates(candidates, year_from, year_to)
     source_counts = _count_source_counts(filtered)
+
+    # LLM relevance pre-filter: cut down to top-N most relevant before expensive per-criterion scoring
+    prefilter_applied = False
+    excluded_by_prefilter = []
+    if filtered and query_text and len(filtered) > _PREFILTER_THRESHOLD:
+        _set_discovery_progress(
+            user_key,
+            stage="pre-filtering",
+            active=True,
+            processed=0,
+            total=len(filtered),
+            found=int(sum(source_counts.values())),
+            source_counts=source_counts,
+            message=f"Pre-filtering {len(filtered)} candidates for relevance...",
+            query=query_text,
+        )
+        cfg_pf = _load_azure_config() or {}
+        deploy_pf = cfg_pf.get("deployment", "gpt-4o")
+        client_pf = _get_azure_client()
+        to_rank, excluded_by_prefilter = _prefilter_candidates_with_ai(query_text, filtered, client_pf, deploy_pf)
+        if excluded_by_prefilter:
+            prefilter_applied = True
+            filtered = to_rank
+            source_counts = _count_source_counts(filtered)
+
     total_to_process = len(filtered)
 
     _set_discovery_progress(
@@ -2529,6 +2831,13 @@ def api_discover_rank():
         )
         return jsonify({"error": str(e)}), 500
 
+    # Append pre-filter-excluded papers with explanatory score_error, after ranked results
+    if excluded_by_prefilter:
+        for c in excluded_by_prefilter:
+            c["score_error"] = "Not pre-selected — lower estimated relevance to query"
+            c["total_score"] = 0
+        ranked = ranked + excluded_by_prefilter
+
     if not ranked and not errors:
         empty_reason = "No papers were available to rank."
     elif not ranked and errors:
@@ -2545,6 +2854,7 @@ def api_discover_rank():
         "index_count": len(filtered),
         "source_counts": source_counts,
         "source_errors": source_errors,
+        "prefilter_applied": prefilter_applied,
         "top_k": len(ranked),
         "team": team_id,
         "team_label": team_label,
