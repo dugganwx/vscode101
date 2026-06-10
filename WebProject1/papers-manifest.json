@@ -11,6 +11,7 @@
     "AMD - idc- agentic white-paper.pdf",
     "Accumulator-Aware Post-Training Quantization for Large Language Models.pdf",
     "Advancing AI System Design with 3D Photonic Interconnects_OCP_Thomas_Graham_Lightmatter.pdf",
+    "Agentic AI Frameworks-Architectures, Protocols, and Design Challenges.pdf",
     "Agentic AI Optimization-AAIO.pdf",
     "Benchmarking GPU Tensor Cores on General Matrix Multiplication Kernels through CUTLASS.pdf",
     "CUDA_Binary_Utilities.pdf",
@@ -27,14 +28,16 @@
     "KIMI K2 Open Agentic Intelligence.pdf",
     "LongCat.pdf",
     "Low-bit Model Quantization for Deep Neural Networks A Survey.pdf",
+    "More Agents Is All You Need.pdf",
     "OCP_Microscaling Formats (MX) v1.0 Spec_Final.pdf",
     "Pretraining Large Language Models with NVFP4.pdf",
     "Small Language Models are the Future of Agentic AI.pdf",
     "The Cost of Dynamic Reasoning_Demysifying AI Agents and Test-Time Scaling from an AI Infrastructure Perspective.pdf",
+    "Towards a Science of Scaling Agent Systems.pdf",
     "Verified Sparse Attention.pdf",
     "amd-instinct-mi300-cdna3-instruction-set-architecture.pdf"
   ],
-  "updated": "2026-05-19T16:29:35.416981",
+  "updated": "2026-06-10T15:26:17.183393",
   "metadata": {
     "1.Krste .pdf": {
       "title": "Agile Hardware Design \u2014 Krste Asanovi\u0107",
@@ -78,6 +81,7 @@
       "link": ""
     },
     "A GEMM-oriented emulation of floating-point matrix multipication using an integer modular technique.pdf": {
+      "infographic": "AI papers for WebProject1/A GEMM-oriented emulation of floating-point matrix multipication using an integer modular technique.jpg",
       "title": "GEMM-Oriented Emulation of FP Matrix Multiplication Using Integer Modular Arithmetic",
       "authors": "Multiple Authors",
       "year": 2024,
@@ -99,6 +103,7 @@
       "link": ""
     },
     "A Survey on Efficient Inference for Large Language Models.pdf": {
+      "infographic": "AI papers for WebProject1/A Survey on Efficient Inference for Large Language Models.jpg",
       "title": "A Survey on Efficient Inference for Large Language Models",
       "authors": "Multiple Authors",
       "year": 2024,
@@ -120,6 +125,7 @@
       "link": ""
     },
     "AMD - idc- agentic white-paper.pdf": {
+      "infographic": "AI papers for WebProject1/AMD - idc- agentic white-paper.jpg",
       "title": "Agentic AI Infrastructure: AMD and IDC White Paper",
       "authors": "AMD / IDC",
       "year": 2025,
@@ -130,6 +136,7 @@
       "link": ""
     },
     "Accumulator-Aware Post-Training Quantization for Large Language Models.pdf": {
+      "infographic": "AI papers for WebProject1/Accumulator-Aware Post-Training Quantization for Large Language Models.jpg",
       "title": "Accumulator-Aware Post-Training Quantization for Large Language Models",
       "authors": "Multiple Authors",
       "year": 2024,
@@ -149,6 +156,17 @@
       "metrics": "Key result signal: bandwidth density (Tb/s/mm\u00b2) and energy per bit versus copper SerDes at equivalent reach.",
       "link": ""
     },
+    "Agentic AI Frameworks-Architectures, Protocols, and Design Challenges.pdf": {
+      "infographic": "AI papers for WebProject1/Agentic AI Frameworks-Architectures, Protocols, and Design Challenges.jpg",
+      "title": "Agentic AI Frameworks: Architectures, Protocols, and Design Challenges",
+      "authors": "Hana Derouiche, Zaki Brahmi, Haithem Mazeni",
+      "year": 2025,
+      "preview": "Systematic review and comparative analysis of leading agentic AI frameworks including CrewAI, LangGraph, AutoGen, Semantic Kernel, and MetaGPT, covering architectures, protocols, and design challenges.",
+      "summary": "Provides a structured taxonomy of agentic AI frameworks, evaluating architectural principles, communication mechanisms, memory management, and safety guardrails across seven major frameworks. Conducts an in-depth analysis of inter-agent communication protocols including Contract Net Protocol, Agent-to-Agent (A2A), Agent Network Protocol (ANP), and Agora. Identifies key limitations and open challenges in scalability, robustness, and interoperability for autonomous AI systems.",
+      "datacenter": "Relevant to AI-on-iA infrastructure planning: the framework comparison and protocol analysis directly informs how head-node orchestration layers should be designed for multi-agent agentic workloads at datacenter scale, including considerations for fault isolation and communication overhead.",
+      "metrics": "Key result signal: comparative architectural taxonomy across seven agentic frameworks with identified gaps in scalability, safety guardrails, and cross-framework interoperability.",
+      "link": "https://arxiv.org/abs/2508.10146"
+    },
     "Agentic AI Optimization-AAIO.pdf": {
       "infographic": "AI papers for WebProject1/Agentic AI Optimization-AAIO.jpg",
       "title": "Agentic AI Optimization (AAIO)",
@@ -161,6 +179,7 @@
       "link": ""
     },
     "Benchmarking GPU Tensor Cores on General Matrix Multiplication Kernels through CUTLASS.pdf": {
+      "infographic": "AI papers for WebProject1/Benchmarking GPU Tensor Cores on General Matrix Multiplication Kernels through CUTLASS.jpg",
       "title": "Benchmarking GPU Tensor Cores on GEMM Kernels through CUTLASS",
       "authors": "Multiple Authors",
       "year": 2023,
@@ -181,6 +200,7 @@
       "link": "https://docs.nvidia.com/cuda/cuda-binary-utilities/"
     },
     "Datacenter TCO for LLM Inference with FP8.pdf": {
+      "infographic": "AI papers for WebProject1/Datacenter TCO for LLM Inference with FP8.jpg",
       "title": "Datacenter TCO for LLM Inference with FP8",
       "authors": "Multiple Authors",
       "year": 2024,
@@ -191,6 +211,7 @@
       "link": ""
     },
     "Dataflow-Near memory compute architectures for AI Acceleration.pdf": {
+      "infographic": "AI papers for WebProject1/Dataflow-Near memory compute architectures for AI Acceleration.jpg",
       "title": "Dataflow and Near-Memory Compute Architectures for AI Acceleration",
       "authors": "Multiple Authors",
       "year": 2023,
@@ -212,6 +233,7 @@
       "link": "https://arxiv.org/abs/2412.19437"
     },
     "DeepSeek_V3_2-Exp Booosting Long-Context Efficiency with DeepSeek Sparse Attention.pdf": {
+      "infographic": "AI papers for WebProject1/DeepSeek_V3_2-Exp Booosting Long-Context Efficiency with DeepSeek Sparse Attention.jpg",
       "title": "DeepSeek-V3.2-Exp: Boosting Long-Context Efficiency with DeepSeek Sparse Attention",
       "authors": "DeepSeek AI",
       "year": 2025,
@@ -232,6 +254,7 @@
       "link": "https://arxiv.org/abs/2401.08671"
     },
     "Efficient and Scaleable Agentic AI with Heterogeneous.pdf": {
+      "infographic": "AI papers for WebProject1/Efficient and Scaleable Agentic AI with Heterogeneous.jpg",
       "title": "Efficient and Scalable Agentic AI with Heterogeneous Hardware",
       "authors": "Multiple Authors",
       "year": 2025,
@@ -242,6 +265,7 @@
       "link": ""
     },
     "Energy Use of AI Inference Efficiency Pathways and Test-Time Compute.pdf": {
+      "infographic": "AI papers for WebProject1/Energy Use of AI Inference Efficiency Pathways and Test-Time Compute.jpg",
       "title": "Energy Use of AI Inference: Efficiency Pathways and Test-Time Compute",
       "authors": "Multiple Authors",
       "year": 2025,
@@ -252,6 +276,7 @@
       "link": ""
     },
     "Expert-Specialized Fine-Tuning for (1).pdf": {
+      "infographic": "AI papers for WebProject1/Expert-Specialized Fine-Tuning for (1).jpg",
       "title": "Expert-Specialized Fine-Tuning for Mixture-of-Experts Models",
       "authors": "Multiple Authors",
       "year": 2024,
@@ -304,6 +329,7 @@
       "link": ""
     },
     "Low-bit Model Quantization for Deep Neural Networks A Survey.pdf": {
+      "infographic": "AI papers for WebProject1/Low-bit Model Quantization for Deep Neural Networks A Survey.jpg",
       "title": "Low-bit Model Quantization for Deep Neural Networks: A Survey",
       "authors": "Multiple Authors",
       "year": 2023,
@@ -312,6 +338,17 @@
       "datacenter": "Foundation reference for model compression strategy in AI inference deployments. Selecting appropriate quantization method and bit-width is the primary lever for fitting larger models into GPU memory budgets while maintaining acceptable accuracy.",
       "metrics": "Key result signal: accuracy-compression frontier across quantization methods for CNNs and Transformers.",
       "link": ""
+    },
+    "More Agents Is All You Need.pdf": {
+      "infographic": "AI papers for WebProject1/More Agents Is All You Need.jpg",
+      "title": "More Agents Is All You Need",
+      "authors": "Junyou Li, Qin Zhang, Yangbin Yu, Qiang Fu, Deheng Ye",
+      "year": 2024,
+      "preview": "Demonstrates that LLM performance scales with the number of agent instances via a simple sampling-and-voting method called Agent Forest, published at TMLR.",
+      "summary": "Shows that instantiating multiple independent LLM agents and aggregating their outputs via majority voting (Agent Forest) improves performance across a wide range of benchmarks, with gains correlated to task difficulty. The method is orthogonal to and composable with existing prompt engineering and fine-tuning improvements. Comprehensive experiments confirm consistent scaling behaviour across model families and task types.",
+      "datacenter": "Relevant to AI-on-iA and agentic serving infrastructure: Agent Forest implies that multi-agent workloads will require horizontally scalable head-node orchestration and efficient parallel inference capacity, with implications for request batching, load balancing, and CPU-side aggregation overhead at cluster scale.",
+      "metrics": "Key result signal: performance scales consistently with agent count across benchmarks, with degree of improvement correlated to task difficulty.",
+      "link": "https://arxiv.org/abs/2402.05120"
     },
     "OCP_Microscaling Formats (MX) v1.0 Spec_Final.pdf": {
       "title": "OCP Microscaling Formats (MX) v1.0 Specification",
@@ -324,6 +361,7 @@
       "link": "https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf"
     },
     "Pretraining Large Language Models with NVFP4.pdf": {
+      "infographic": "AI papers for WebProject1/Pretraining Large Language Models with NVFP4.jpg",
       "title": "Pretraining Large Language Models with NVFP4",
       "authors": "NVIDIA",
       "year": 2025,
@@ -354,6 +392,17 @@
       "datacenter": "Directly relevant to cluster configuration for reasoning-heavy workloads. Test-time scaling dramatically increases tokens-per-query, multiplying GPU-hours per request and requiring different batching and memory strategies than standard chat serving.",
       "metrics": "Key result signal: GPU-hours per query ratio between reasoning and standard inference modes across task difficulty levels.",
       "link": ""
+    },
+    "Towards a Science of Scaling Agent Systems.pdf": {
+      "infographic": "AI papers for WebProject1/Towards a Science of Scaling Agent Systems.jpg",
+      "title": "Towards a Science of Scaling Agent Systems",
+      "authors": "Yubin Kim, Ken Gu, Chanwoo Park, Chunjong Park, Samuel Schmidgall, A. Ali Heydari, Yao Yan, Zhihan Zhang, Yuchen Zhuang, Yun Liu, Mark Malhotra, Paul Pu Liang, Hae Won Park, Yuzhe Yang, Xuhai Xu, Yilun Du, Shwetak Patel, Tim Althoff, Daniel McDuff, Xin Liu",
+      "year": 2025,
+      "preview": "Introduces quantitative scaling principles for multi-agent systems, measuring how performance varies with coordination strategy, model capability, and task structure across 260 configurations.",
+      "summary": "Evaluates five canonical agent architectures (Single-Agent, Independent, Centralized, Decentralized, Hybrid Multi-Agent) across six agentic benchmarks and three LLM families in a controlled study standardising tools, prompts, and compute. Derives a predictive scaling model achieving cross-validated R\u00b2=0.373, identifying a capability-saturation effect where multi-agent coordination yields diminishing returns once single-agent baselines exceed a threshold. Finds that architecture-task alignment is the primary determinant of collaborative success, with relative performance ranging from +80.8% on decomposable financial reasoning to -70.0% on sequential planning.",
+      "datacenter": "Directly relevant to AI-on-iA infrastructure design: the capability-saturation finding and coordination overhead analysis provide empirical grounding for decisions about when to deploy multi-agent orchestration versus scaling a single capable model, with cost implications for head-node CPU and GPU allocation in agentic serving clusters.",
+      "metrics": "Key result signal: cross-validated R\u00b2=0.373 scaling model; architecture selection correct for 87% of held-out configurations; coordination gains range from +80.8% to -70.0% depending on task decomposability.",
+      "link": "https://arxiv.org/abs/2512.08296"
     },
     "Verified Sparse Attention.pdf": {
       "infographic": "AI papers for WebProject1/Verified Sparse Attention.jpg",

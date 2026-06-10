@@ -1,0 +1,11 @@
+{
+  "title": "Towards a Science of Scaling Agent Systems",
+  "authors": "Yubin Kim, Ken Gu, Chanwoo Park, Chunjong Park, Samuel Schmidgall, A. Ali Heydari, Yao Yan, Zhihan Zhang, Yuchen Zhuang, Yun Liu, Mark Malhotra, Paul Pu Liang, Hae Won Park, Yuzhe Yang, Xuhai Xu, Yilun Du, Shwetak Patel, Tim Althoff, Daniel McDuff, Xin Liu",
+  "year": 2025,
+  "preview": "Introduces quantitative scaling principles for multi-agent systems, measuring how performance varies with coordination strategy, model capability, and task structure across 260 configurations.",
+  "summary": "Evaluates five canonical agent architectures (Single-Agent, Independent, Centralized, Decentralized, Hybrid Multi-Agent) across six agentic benchmarks and three LLM families in a controlled study standardising tools, prompts, and compute. Derives a predictive scaling model achieving cross-validated R\u00b2=0.373, identifying a capability-saturation effect where multi-agent coordination yields diminishing returns once single-agent baselines exceed a threshold. Finds that architecture-task alignment is the primary determinant of collaborative success, with relative performance ranging from +80.8% on decomposable financial reasoning to -70.0% on sequential planning.",
+  "datacenter": "Directly relevant to AI-on-iA infrastructure design: the capability-saturation finding and coordination overhead analysis provide empirical grounding for decisions about when to deploy multi-agent orchestration versus scaling a single capable model, with cost implications for head-node CPU and GPU allocation in agentic serving clusters.",
+  "metrics": "Key result signal: cross-validated R\u00b2=0.373 scaling model; architecture selection correct for 87% of held-out configurations; coordination gains range from +80.8% to -70.0% depending on task decomposability.",
+  "link": "https://arxiv.org/abs/2512.08296",
+  "citation_count": 0
+}

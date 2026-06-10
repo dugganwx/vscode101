@@ -6,5 +6,6 @@
   "summary": "Examines the compute, memory, and network requirements of agentic AI systems where multiple LLMs collaborate, retrieve data, and execute tool calls in multi-step pipelines. Covers AMD Instinct and ROCm ecosystem capabilities in the context of enterprise agentic deployments.",
   "datacenter": "Directly relevant to capacity planning for agentic AI. Argues that agentic workloads have different memory access patterns and latency requirements than batch inference, requiring rethinking of GPU fleet composition and interconnect topology.",
   "metrics": "Key result signal: infrastructure cost and performance projections for agentic AI deployment at enterprise scale.",
-  "link": ""
+  "link": "",
+  "citation_count": 0
 }

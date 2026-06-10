@@ -1,7 +1,7 @@
 @echo off
 REM ── Start AI Architecture Papers Portal ────────────────────────────────────
 REM Run this from the WebProject1 directory: start.bat
-
+call proxy.bat
 set PYTHON=C:\Users\dugganwx\AppData\Local\Python\pythoncore-3.14-64\python.exe
 set PORT=5000
 

@@ -1,0 +1,11 @@
+{
+  "title": "Agentic AI Frameworks: Architectures, Protocols, and Design Challenges",
+  "authors": "Hana Derouiche, Zaki Brahmi, Haithem Mazeni",
+  "year": 2025,
+  "preview": "Systematic review and comparative analysis of leading agentic AI frameworks including CrewAI, LangGraph, AutoGen, Semantic Kernel, and MetaGPT, covering architectures, protocols, and design challenges.",
+  "summary": "Provides a structured taxonomy of agentic AI frameworks, evaluating architectural principles, communication mechanisms, memory management, and safety guardrails across seven major frameworks. Conducts an in-depth analysis of inter-agent communication protocols including Contract Net Protocol, Agent-to-Agent (A2A), Agent Network Protocol (ANP), and Agora. Identifies key limitations and open challenges in scalability, robustness, and interoperability for autonomous AI systems.",
+  "datacenter": "Relevant to AI-on-iA infrastructure planning: the framework comparison and protocol analysis directly informs how head-node orchestration layers should be designed for multi-agent agentic workloads at datacenter scale, including considerations for fault isolation and communication overhead.",
+  "metrics": "Key result signal: comparative architectural taxonomy across seven agentic frameworks with identified gaps in scalability, safety guardrails, and cross-framework interoperability.",
+  "link": "https://arxiv.org/abs/2508.10146",
+  "citation_count": 0
+}

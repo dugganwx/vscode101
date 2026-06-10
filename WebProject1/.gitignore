@@ -1,7 +1,11 @@
 papers.db
 __pycache__/
 *.pyc
+*.bak
 papers-manifest.js
 papers-manifest.json
 flask.pid
 azure_openai_config.txt
+AI papers for WebProject1/*.pdf
+AI papers for WebProject1/*.PDF
+AI papers for WebProject1/generated/

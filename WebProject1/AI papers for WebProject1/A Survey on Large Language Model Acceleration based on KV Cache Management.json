@@ -6,5 +6,6 @@
   "summary": "Reviews the landscape of KV cache management techniques including sparse attention (H2O, StreamingLLM), token merging, quantized KV caches, CPU offloading, and paged allocation (vLLM). Analyses memory bandwidth vs compute tradeoffs for each approach and categorises them by context length regime.",
   "datacenter": "Directly actionable for inference cluster operators. KV cache is the dominant memory consumer in long-context serving; management strategy determines maximum concurrent request capacity and GPU memory utilisation efficiency.",
   "metrics": "Key result signal: memory reduction factor and throughput improvement for KV cache techniques across context lengths.",
-  "link": ""
+  "link": "",
+  "citation_count": 0
 }
