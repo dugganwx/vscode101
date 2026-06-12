@@ -82,7 +82,7 @@ from models import (
     init_db, get_all_papers, search_papers, get_paper, upsert_paper,
     update_paper, delete_paper,
     slugify, infer_year, to_display_title,
-    create_user, get_user_by_id, verify_user, user_count,
+    get_user_csv, verify_user_csv,
     upsert_external_paper, search_external_papers, external_paper_count,
     save_figure_feedback, get_figure_feedback_summary
 )
@@ -109,13 +109,14 @@ def unauthorized():
 
 class User(UserMixin):
     def __init__(self, user_dict):
-        self.id = user_dict["id"]
+        self.id = user_dict["username"]          # session key = username
         self.username = user_dict["username"]
+        self.is_admin = user_dict.get("admin", False)
 
 
 @login_manager.user_loader
 def load_user(user_id):
-    u = get_user_by_id(int(user_id))
+    u = get_user_csv(user_id)                     # user_id is now the username string
     return User(u) if u else None
 
 PAPER_FOLDER = "AI papers for WebProject1"
@@ -263,11 +264,7 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
 
-        # First user ever → auto-register
-        if user_count() == 0 and username and password:
-            create_user(username, password)
-
-        user = verify_user(username, password)
+        user = verify_user_csv(username, password)
         if user:
             login_user(User(user), remember=True)
             next_page = request.args.get("next") or url_for("serve_index")
@@ -276,34 +273,6 @@ def login():
             return redirect(url_for("login", error="Invalid username or password"))
 
     return send_from_directory(".", "login.html")
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if current_user.is_authenticated:
-        return redirect(url_for("serve_index"))
-
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        confirm = request.form.get("confirm", "")
-
-        if not username or not password:
-            return redirect(url_for("register", error="Username and password are required"))
-        if len(password) < 4:
-            return redirect(url_for("register", error="Password must be at least 4 characters"))
-        if password != confirm:
-            return redirect(url_for("register", error="Passwords do not match"))
-
-        uid = create_user(username, password)
-        if uid is None:
-            return redirect(url_for("register", error="Username already taken"))
-
-        user = get_user_by_id(uid)
-        login_user(User(user), remember=True)
-        return redirect(url_for("serve_index"))
-
-    return send_from_directory(".", "register.html")
 
 
 @app.route("/logout")
@@ -430,6 +399,13 @@ def api_create_paper():
     return jsonify(get_paper(paper_id)), 201
 
 
+@app.route("/api/me")
+@login_required
+def api_me():
+    """Return the current user's username and admin status."""
+    return jsonify({"username": current_user.username, "is_admin": current_user.is_admin})
+
+
 @app.route("/api/papers/<paper_id>", methods=["PUT"])
 @login_required
 def api_update_paper(paper_id):
@@ -439,6 +415,15 @@ def api_update_paper(paper_id):
         abort(404)
 
     fields = request.get_json(silent=True) or {}
+
+    # Admin gate: only admins may add/remove the matts_picks tag
+    new_groups = fields.get("groups")
+    if isinstance(new_groups, list):
+        old_has = "matts_picks" in (p.get("groups") or [])
+        new_has = "matts_picks" in new_groups
+        if old_has != new_has and not current_user.is_admin:
+            return jsonify({"error": "Only admin users can change Matt's Recommended Reading"}), 403
+
     updated = update_paper(paper_id, fields)
     if updated is None:
         return jsonify({"error": "No valid fields provided"}), 400

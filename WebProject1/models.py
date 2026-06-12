@@ -8,8 +8,7 @@ import json
 import re
 import datetime
 import os
-
-from werkzeug.security import generate_password_hash, check_password_hash
+import csv
 
 DB_PATH = "papers.db"
 
@@ -60,14 +59,7 @@ def init_db():
             updated_at TEXT
         )
     """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TEXT
-        )
-    """)
+    # users table no longer used — access control is via users.csv
     conn.execute("""
         CREATE TABLE IF NOT EXISTS site_stats (
             key TEXT PRIMARY KEY,
@@ -397,50 +389,48 @@ def to_display_title(filename):
     return base if base else filename
 
 
-# ── User management ─────────────────────────────────────────────────────────
+# ── CSV-based user management ───────────────────────────────────────────────
 
-def create_user(username, password):
-    now = datetime.datetime.now().isoformat()
-    conn = _connect()
+_USERS_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.csv")
+_users_cache = []      # list of user dicts
+_users_mtime = 0.0     # last-modified time of the CSV file
+
+
+def _load_users_csv():
+    """Read users.csv, caching by file mtime so edits are picked up without restart."""
+    global _users_cache, _users_mtime
     try:
-        conn.execute(
-            "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-            (username, generate_password_hash(password), now)
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.close()
-        return None  # username already exists
-    user_id = conn.execute(
-        "SELECT id FROM users WHERE username = ?", (username,)
-    ).fetchone()["id"]
-    conn.close()
-    return user_id
+        mtime = os.path.getmtime(_USERS_CSV_PATH)
+    except OSError:
+        _users_cache = []
+        _users_mtime = 0.0
+        return _users_cache
+    if mtime != _users_mtime:
+        users = []
+        with open(_USERS_CSV_PATH, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                users.append({
+                    "username": row.get("username", "").strip(),
+                    "password": row.get("password", "").strip(),
+                    "admin": row.get("admin", "N").strip().upper() == "Y",
+                })
+        _users_cache = users
+        _users_mtime = mtime
+    return _users_cache
 
 
-def get_user_by_id(user_id):
-    conn = _connect()
-    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_user_by_username(username):
-    conn = _connect()
-    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def verify_user(username, password):
-    user = get_user_by_username(username)
-    if user and check_password_hash(user["password_hash"], password):
-        return user
+def get_user_csv(username):
+    """Look up a user by username (case-insensitive). Returns dict or None."""
+    for u in _load_users_csv():
+        if u["username"].lower() == username.lower():
+            return u
     return None
 
 
-def user_count():
-    conn = _connect()
-    count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    conn.close()
-    return count
+def verify_user_csv(username, password):
+    """Verify credentials against CSV. Returns user dict or None."""
+    user = get_user_csv(username)
+    if user and user["password"] == password:
+        return user
+    return None

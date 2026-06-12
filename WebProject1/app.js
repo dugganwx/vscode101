@@ -12,6 +12,7 @@ let _discoverySourceErrors = { arxiv: null, openalex: null, "core-pr": null };
 let _discoveryExpandedTerms = []; // LLM-generated synonym queries used in last search
 let _liveCitationCounts = {}; // { paper_id: int | null } — null means could not be retrieved
 let _clipboardPapers = []; // discovery papers added to clipboard; resets on page refresh
+let _currentUserIsAdmin = false; // fetched from /api/me on load
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -1122,7 +1123,7 @@ function renderExpandedCard(paper, libraryViewMode) {
       ? ""
       : `<button class="ghost-link delete-paper-btn" type="button" data-id="${paper.id}">Delete</button>`;
     const isPicked = paper.groups.includes("matts_picks");
-    const pickBtnHtml = libraryViewMode
+    const pickBtnHtml = (libraryViewMode && _currentUserIsAdmin)
       ? `<button class="ghost-link matts-pick-btn" type="button" data-id="${paper.id}">${isPicked ? "\u2605 Matt\u2019s Pick" : "\u2606 Matt\u2019s Pick"}</button>`
       : "";
     editBtns = `
@@ -1968,6 +1969,11 @@ function _initClipboard() {
 }
 
 function init() {
+  // Fetch current user info (admin status)
+  fetch("/api/me").then(r => r.json()).then(data => {
+    _currentUserIsAdmin = !!data.is_admin;
+  }).catch(() => {});
+
   // Page navigation
   document.querySelectorAll(".nav-btn[data-page]").forEach((btn) => {
     btn.addEventListener("click", () => switchPage(btn.dataset.page));
