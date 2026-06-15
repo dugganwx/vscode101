@@ -49,6 +49,56 @@ let _discoverySearchInFlight = false;
 let _discoveryRankInFlight = false;
 let _discoverySearchContext = { query: "", year_from: "2020", year_to: "2026" };
 
+// ── Discovery state persistence (sessionStorage) ──────────────────────────
+const _DISCOVERY_STORAGE_KEY = "discovery_state";
+
+function _saveDiscoveryState() {
+  try {
+    sessionStorage.setItem(_DISCOVERY_STORAGE_KEY, JSON.stringify({
+      papers: discoveredWebPapers,
+      sourceCounts: _discoverySourceCounts,
+      sourceErrors: _discoverySourceErrors,
+      expandedTerms: _discoveryExpandedTerms,
+      emptyReason: _discoveryEmptyReason,
+      searchContext: _discoverySearchContext,
+      queryText: discoveryQueryEl ? discoveryQueryEl.textContent : "",
+      statusText: discoveryStatusEl ? discoveryStatusEl.textContent : "",
+    }));
+  } catch (_) { /* quota exceeded or private mode */ }
+}
+
+function _restoreDiscoveryState() {
+  try {
+    const raw = sessionStorage.getItem(_DISCOVERY_STORAGE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (!Array.isArray(s.papers) || !s.papers.length) return false;
+    discoveredWebPapers = s.papers;
+    _discoverySourceCounts = s.sourceCounts || { arxiv: 0, openalex: 0, "core-pr": 0 };
+    _discoverySourceErrors = s.sourceErrors || { arxiv: null, openalex: null, "core-pr": null };
+    _discoveryExpandedTerms = Array.isArray(s.expandedTerms) ? s.expandedTerms : [];
+    _discoveryEmptyReason = s.emptyReason || "";
+    _discoverySearchContext = s.searchContext || { query: "", year_from: "2020", year_to: "2026" };
+    if (discoveryQueryEl && s.queryText) discoveryQueryEl.textContent = s.queryText;
+    if (discoveryStatusEl && s.statusText) discoveryStatusEl.textContent = s.statusText;
+    // Restore search input and year fields
+    const searchInput = document.getElementById("discoverySearchInput");
+    if (searchInput && _discoverySearchContext.query) searchInput.value = _discoverySearchContext.query;
+    const yearFromEl = document.getElementById("yearFrom");
+    const yearToEl = document.getElementById("yearTo");
+    if (yearFromEl && _discoverySearchContext.year_from) yearFromEl.value = _discoverySearchContext.year_from;
+    if (yearToEl && _discoverySearchContext.year_to) yearToEl.value = _discoverySearchContext.year_to;
+    _renderExpandedTerms();
+    renderDiscoveryFeed();
+    _setRankButtonsEnabledByResults();
+    return true;
+  } catch (_) { return false; }
+}
+
+function _clearDiscoveryStorage() {
+  try { sessionStorage.removeItem(_DISCOVERY_STORAGE_KEY); } catch (_) {}
+}
+
 const _rankingTeams = {
   oie: { code: "OIE", label: "OIE - AI on GPU Optimization" },
   e2o: { code: "E2O", label: "E2O - Network, Switch, Optical" },
@@ -1451,6 +1501,7 @@ function switchPage(pageId) {
   location.hash = pageId;
 
   // Render page content on switch
+  if (pageId === "page-discovery") renderDiscoveryFeed();
   if (pageId === "page-search-library") renderSearchLibrary();
   if (pageId === "page-library-view") { _refreshCitationCounts(); renderLibraryView(); renderFullSections(); }
 }
@@ -1464,6 +1515,7 @@ async function handleFindNewPapers() {
   findNewPapersBtn.disabled = true;
   _setAllRankButtonsDisabled(true);
   discoveryStatusEl.textContent = "Searching sources...";
+  _clearDiscoveryStorage();
   discoveredWebPapers = [];
   _discoveryEmptyReason = "";
   _discoverySourceCounts = { arxiv: 0, openalex: 0, "core-pr": 0 };
@@ -1523,6 +1575,7 @@ async function handleFindNewPapers() {
     }
     _setDiscoveryProgressBar(0, 0, false, "Search complete. Click a team rank button to start AI ranking.");
     _setRankButtonsEnabledByResults();
+    _saveDiscoveryState();
   } catch (error) {
     discoveredWebPapers = [];
     _discoveryEmptyReason = error.message || "Search failed.";
@@ -1579,6 +1632,7 @@ async function handleRankPapers(teamId) {
     _discoverySourceCounts = data.source_counts || _discoverySourceCounts;
     _discoverySourceErrors = data.source_errors || _discoverySourceErrors;
     renderDiscoveryFeed();
+    _saveDiscoveryState();
 
     if (discoveryQueryEl && _discoverySearchContext.query) {
       discoveryQueryEl.textContent = `Ranked ${discoveredWebPapers.length} papers for "${_discoverySearchContext.query}" (${teamLabel}) | Years: ${_discoverySearchContext.year_from}-${_discoverySearchContext.year_to}`;
@@ -2132,10 +2186,15 @@ function init() {
     });
   }
 
+  // Restore discovery state from sessionStorage (survives page reloads)
+  const discoveryRestored = _restoreDiscoveryState();
+
   // Fetch papers from API
   fetchPapersFromApi();
-  _setDiscoveryProgressBar(0, 0, false, "Search first, then click one team rank button.");
-  _setAllRankButtonsDisabled(true);
+  if (!discoveryRestored) {
+    _setDiscoveryProgressBar(0, 0, false, "Search first, then click one team rank button.");
+    _setAllRankButtonsDisabled(true);
+  }
 
   // SSE for live updates
   const sse = new EventSource("/api/changes");
