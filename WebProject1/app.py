@@ -80,11 +80,9 @@ import fitz  # PyMuPDF
 
 from models import (
     init_db, get_all_papers, search_papers, get_paper, upsert_paper,
-    update_paper, delete_paper,
+    update_paper, delete_paper, add_from_discovery,
     slugify, infer_year, to_display_title,
     get_user_csv, verify_user_csv,
-    upsert_external_paper, search_external_papers, external_paper_count,
-    save_figure_feedback, get_figure_feedback_summary
 )
 
 # ── App setup ───────────────────────────────────────────────────────────────
@@ -143,29 +141,17 @@ POLL_INTERVAL = 5  # seconds
 
 
 def _load_sidecar(filename):
-    """Read JSON sidecar + detect infographic for a single PDF."""
+    """Detect infographic image for a single PDF (sidecars no longer used)."""
     base = os.path.splitext(filename)[0]
-    sidecar = {}
+    image_path = None
 
     for ext in (".jpg", ".JPG", ".jpeg", ".JPEG"):
         jpg_path = os.path.join(PAPER_FOLDER, base + ext)
         if os.path.exists(jpg_path):
-            sidecar["infographic"] = PAPER_FOLDER + "/" + base + ext
+            image_path = PAPER_FOLDER + "/" + base + ext
             break
 
-    jpath = os.path.join(PAPER_FOLDER, base + ".json")
-    if os.path.exists(jpath):
-        try:
-            with open(jpath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for k in ("title", "authors", "year", "preview", "summary",
-                      "datacenter", "metrics", "link", "infographic", "citation_count"):
-                if k in data:
-                    sidecar[k] = data[k]
-        except Exception as e:
-            print(f"  [warn] sidecar read error {jpath}: {e}")
-
-    return sidecar
+    return {"image_path": image_path}
 
 
 def _infer_groups(filename):
@@ -177,29 +163,46 @@ def _infer_groups(filename):
 
 
 def _import_pdf(filename):
-    """Import a single PDF into the database."""
+    """Import a single PDF into the database (skips if already exists)."""
     paper_id = f"local-{slugify(filename)}"
-    sidecar = _load_sidecar(filename)
-    year = sidecar.get("year") or infer_year(filename)
-    title = sidecar.get("title") or to_display_title(filename)
-    has_groups = isinstance(sidecar.get("groups"), list) and len(sidecar["groups"]) > 0
-    groups = sidecar["groups"] if has_groups else _infer_groups(filename)
+
+    # If the paper already exists, only update image_path / pdf_path — preserve metadata
+    existing = get_paper(paper_id)
+    if existing:
+        detected = _load_sidecar(filename)
+        updates = {}
+        pdf_path = f"{PAPER_FOLDER}/{filename}"
+        if existing.get("pdf_path") != pdf_path:
+            updates["pdf_path"] = pdf_path
+            updates["link"] = pdf_path
+        new_img = detected.get("image_path")
+        if new_img and existing.get("image_path") != new_img:
+            updates["image_path"] = new_img
+        if updates:
+            update_paper(paper_id, updates)
+        return
+
+    detected = _load_sidecar(filename)
+    year = infer_year(filename)
+    title = to_display_title(filename)
+    groups = _infer_groups(filename)
+    pdf_path = f"{PAPER_FOLDER}/{filename}"
 
     upsert_paper({
         "id": paper_id,
-        "filename": filename,
         "title": title,
-        "authors": sidecar.get("authors", ""),
+        "authors": "",
         "year": year,
         "groups": groups,
-        "pinned": 1 if has_groups else 0,
-        "preview": sidecar.get("preview", ""),
-        "summary": sidecar.get("summary", ""),
-        "datacenter": sidecar.get("datacenter", ""),
-        "metrics": sidecar.get("metrics", ""),
-        "link": sidecar.get("link") or f"{PAPER_FOLDER}/{filename}",
-        "infographic": sidecar.get("infographic", ""),
-        "citation_count": int(sidecar.get("citation_count", 0) or 0),
+        "pinned": 0,
+        "preview": "",
+        "summary": "",
+        "datacenter": "",
+        "metrics": "",
+        "link": pdf_path,
+        "pdf_path": pdf_path,
+        "image_path": detected.get("image_path"),
+        "source": "local",
     })
 
 
@@ -287,27 +290,7 @@ def logout():
 @app.route("/")
 @login_required
 def serve_index():
-    # Increment visit counter
-    try:
-        conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "papers.db"))
-        conn.execute("UPDATE site_stats SET value = value + 1 WHERE key = 'visit_count'")
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
     return send_from_directory(".", "index.html")
-
-
-@app.route("/api/visit-count")
-@login_required
-def api_visit_count():
-    try:
-        conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "papers.db"))
-        row = conn.execute("SELECT value FROM site_stats WHERE key = 'visit_count'").fetchone()
-        conn.close()
-        return jsonify({"count": row[0] if row else 0})
-    except Exception:
-        return jsonify({"count": 0})
 
 
 @app.route("/styles.css")
@@ -379,7 +362,6 @@ def api_create_paper():
 
     paper = {
         "id": paper_id,
-        "filename": filename,
         "title": title,
         "authors": request.form.get("authors", "").strip(),
         "year": year,
@@ -390,7 +372,9 @@ def api_create_paper():
         "datacenter": request.form.get("datacenter", "").strip(),
         "metrics": request.form.get("metrics", "").strip(),
         "link": f"{PAPER_FOLDER}/{filename}",
-        "infographic": "",
+        "pdf_path": f"{PAPER_FOLDER}/{filename}",
+        "image_path": None,
+        "source": "local",
     }
 
     upsert_paper(paper)
@@ -436,22 +420,68 @@ def api_update_paper(paper_id):
 @login_required
 def api_delete_paper(paper_id):
     """Delete a paper from the database and remove its files from disk."""
-    filename = delete_paper(paper_id)
-    if filename is None:
-        abort(404)
+    pdf_path, image_path = delete_paper(paper_id)
+    if pdf_path is None and image_path is None:
+        # Check if the paper existed at all
+        if not get_paper(paper_id):
+            abort(404)
 
     # Clean up files on disk
-    pdf_path = os.path.join(PAPER_FOLDER, filename)
-    if os.path.exists(pdf_path):
+    if pdf_path and os.path.exists(pdf_path):
         os.remove(pdf_path)
-
-    base = os.path.splitext(filename)[0]
-    json_path = os.path.join(PAPER_FOLDER, base + ".json")
-    if os.path.exists(json_path):
-        os.remove(json_path)
+    if image_path and os.path.exists(image_path):
+        os.remove(image_path)
 
     notify_clients()
     return "", 204
+
+
+# ── REST API: LLM Metadata Generation ──────────────────────────────────────
+
+_METADATA_FIELDS = ("title", "authors", "year", "preview", "summary", "datacenter", "metrics")
+
+
+@app.route("/api/papers/<paper_id>/generate-metadata", methods=["POST"])
+@login_required
+def api_generate_metadata(paper_id):
+    """Use LLM to fill in blank metadata fields for an existing library paper."""
+    paper = get_paper(paper_id)
+    if not paper:
+        return jsonify({"error": "Paper not found"}), 404
+
+    pdf_path = paper.get("pdf_path", "")
+    if not pdf_path or not os.path.exists(pdf_path):
+        return jsonify({"error": "No local PDF available for this paper"}), 400
+
+    # Determine which fields are blank
+    blank_fields = [f for f in _METADATA_FIELDS if not str(paper.get(f) or "").strip()]
+    if not blank_fields:
+        return jsonify({"message": "All metadata fields are already populated", "paper": paper}), 200
+
+    generated = _generate_metadata_from_pdf(
+        pdf_path,
+        title_hint=paper.get("title", ""),
+        year_hint=paper.get("year", 2024),
+    )
+    if not generated:
+        return jsonify({"error": "LLM metadata generation failed. Check Azure OpenAI configuration."}), 502
+
+    # Only overwrite fields that are currently blank
+    updates = {}
+    for field in blank_fields:
+        value = generated.get(field)
+        if value is not None and str(value).strip():
+            updates[field] = value
+
+    if not updates:
+        return jsonify({"message": "LLM could not generate any missing fields", "paper": paper}), 200
+
+    updated = update_paper(paper_id, updates)
+    notify_clients()
+    return jsonify({
+        "paper": updated,
+        "fields_updated": list(updates.keys()),
+    })
 
 
 # ── REST API: Image Generation ──────────────────────────────────────────────
@@ -464,19 +494,19 @@ def api_generate_infographic(paper_id):
     if not paper:
         abort(404)
 
-    result = {"generated_infographic": None, "errors": []}
+    result = {"image_path": None, "errors": []}
     try:
         info_path = _generate_infographic(paper, paper_id)
         if info_path:
-            update_paper(paper_id, {"generated_infographic": info_path})
-            result["generated_infographic"] = info_path
+            update_paper(paper_id, {"image_path": info_path})
+            result["image_path"] = info_path
         else:
             result["errors"].append("Infographic generation returned no result")
     except Exception as e:
         result["errors"].append(f"Infographic generation failed: {e}")
 
     notify_clients()
-    status = 200 if result["generated_infographic"] else 502
+    status = 200 if result["image_path"] else 502
     return jsonify(result), status
 
 
@@ -488,29 +518,29 @@ def api_generate_images(paper_id):
     if not paper:
         abort(404)
 
-    result = {"best_figure": None, "generated_infographic": None, "errors": []}
+    result = {"image_path": None, "errors": []}
 
     # Extract best figure from PDF
-    pdf_path = os.path.join(PAPER_FOLDER, paper.get("filename", ""))
-    if os.path.exists(pdf_path):
+    pdf_path = paper.get("pdf_path", "")
+    if pdf_path and os.path.exists(pdf_path):
         try:
             fig_path = _extract_best_figure(pdf_path, paper_id)
             if fig_path:
-                update_paper(paper_id, {"best_figure": fig_path})
-                result["best_figure"] = fig_path
+                update_paper(paper_id, {"image_path": fig_path})
+                result["image_path"] = fig_path
             else:
                 result["errors"].append("Best figure extraction returned no result")
         except Exception as e:
             result["errors"].append(f"Best figure extraction failed: {e}")
     else:
-        result["errors"].append(f"PDF not found: {paper.get('filename', '')}")
+        result["errors"].append(f"PDF not found: {pdf_path}")
 
-    # Generate infographic
+    # Generate infographic (overwrites best_figure if successful)
     try:
         info_path = _generate_infographic(paper, paper_id)
         if info_path:
-            update_paper(paper_id, {"generated_infographic": info_path})
-            result["generated_infographic"] = info_path
+            update_paper(paper_id, {"image_path": info_path})
+            result["image_path"] = info_path
         else:
             result["errors"].append("Infographic generation returned no result (model may not support image generation)")
     except Exception as e:
@@ -518,7 +548,7 @@ def api_generate_images(paper_id):
 
     notify_clients()
 
-    status = 200 if (result["best_figure"] or result["generated_infographic"]) else 502
+    status = 200 if result["image_path"] else 502
     return jsonify(result), status
 
 
@@ -698,41 +728,19 @@ def _extract_page_image_from_url(pdf_url, page_num=0, base_bbox=None, dpi=220):
 @app.route("/api/discover/figure/manual-bbox", methods=["POST"])
 @login_required
 def api_discover_figure_manual_bbox():
-    """Persist a user-tuned manual bounding box for a discovery figure."""
+    """Accept a user-tuned manual bounding box for a discovery figure."""
     data = request.get_json(silent=True) or {}
     pdf_url = (data.get("pdf_url") or "").strip()
-    request_id = (data.get("request_id") or "").strip()
-    page = data.get("page")
     manual_bbox = _normalize_manual_bbox(data.get("manual_bbox"))
     if not pdf_url:
         return jsonify({"error": "pdf_url is required"}), 400
     if manual_bbox is None:
         return jsonify({"error": "manual_bbox must be normalized 0..1 and at least 5% width/height"}), 400
 
-    verdict = "manual"
-
-    try:
-        page_num = int(page) if page is not None else None
-    except (TypeError, ValueError):
-        page_num = None
-
-    save_figure_feedback({
-        "request_id": request_id,
-        "pdf_url": pdf_url,
-        "page": page_num,
-        "bbox": manual_bbox,
-        "verdict": verdict,
-        "notes": (data.get("notes") or "")[:240],
-        "model": data.get("model") or "gpt-4o",
-        "bbox_source": "manual",
-    })
-
-    summary = get_figure_feedback_summary(pdf_url)
     return jsonify({
         "ok": True,
         "bbox_validated": True,
         "bbox": manual_bbox,
-        "summary": summary,
     })
 
 
@@ -762,6 +770,11 @@ def api_discover_pdf_page():
 PROXY_URL = os.environ.get("HTTP_PROXY", "http://proxy-dmz.intel.com:912")
 _proxies = {"http": PROXY_URL, "https": PROXY_URL}
 
+# In-memory discovery cache — discovery results are NOT stored in the DB.
+# Users add papers to the library explicitly via /api/papers/import-discovery.
+_discovery_cache = {}
+_discovery_cache_lock = threading.Lock()
+
 _DISCOVERY_QUERIES = [
     "LLM transformer architecture mixture of experts attention mechanism",
     "large language model inference serving GPU efficiency",
@@ -779,8 +792,6 @@ _DISCOVERY_QUERIES = [
 _discovery_query_index = 0
 _index_lock = threading.Lock()
 _RANK_LOG_SNIPPET_CHARS = 700
-_last_index_refresh = 0.0
-_INDEX_REFRESH_SECONDS = 12 * 60 * 60
 _DISCOVERY_PROGRESS_LOCK = threading.Lock()
 _DISCOVERY_PROGRESS = {}
 
@@ -1359,7 +1370,6 @@ def _extract_figure_from_url(pdf_url):
 
     try:
         deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
-        feedback_summary = get_figure_feedback_summary(pdf_url)
         pages = _render_pdf_pages(tmp_path, dpi=100, max_pages=10)
         if not pages:
             return {
@@ -1413,7 +1423,6 @@ def _extract_figure_from_url(pdf_url):
             best_page,
             client,
             deployment,
-            feedback_summary=feedback_summary,
         )
         if hq_bytes is None:
             return {
@@ -2345,10 +2354,9 @@ def _dedup_candidates_by_title(candidates):
 
 
 def _store_external_candidates(candidates, indexed_query):
+    """Store candidates in the in-memory discovery cache (not in DB)."""
     for cand in candidates:
-        payload = dict(cand)
-        payload["indexed_query"] = indexed_query
-        upsert_external_paper(payload)
+        _discovery_cache[cand.get("id", "")] = dict(cand)
 
 
 def _build_external_index(seeds, year_from, year_to, source_progress_callback=None):
@@ -2397,18 +2405,6 @@ def _build_external_index(seeds, year_from, year_to, source_progress_callback=No
     primary_query = seeds[0] if seeds else ""
     _store_external_candidates(deduped, primary_query)
     return deduped, source_errors
-
-
-def _index_refresh_loop():
-    global _last_index_refresh
-    while True:
-        try:
-            with _index_lock:
-                _build_external_index([], 2020, datetime.datetime.now().year)
-                _last_index_refresh = time.time()
-        except Exception as e:
-            print(f"  [Index] background refresh failed: {e}")
-        time.sleep(_INDEX_REFRESH_SECONDS)
 
 
 # ── Discovery helpers ───────────────────────────────────────────────────────
@@ -2658,6 +2654,9 @@ def api_clipboard_report():
 @app.route("/api/discover/search", methods=["GET"])
 @login_required
 def api_discover_search():
+    # Clear the in-memory discovery cache on each new search
+    with _discovery_cache_lock:
+        _discovery_cache.clear()
     query_text = request.args.get("q", "").strip()
     year_from = _parse_year_param(request.args.get("year_from", "2020", type=str), 2020)
     year_to = _parse_year_param(request.args.get("year_to", "2026", type=str), 2026)
@@ -2931,6 +2930,160 @@ def api_discover_rank():
     return resp
 
 
+# ── REST API: Import Discovery Paper to Library ─────────────────────────────
+
+_IMPORT_METADATA_PROMPT = """\
+You are a research metadata extractor for an AI architecture papers portal.
+Given the title and extracted text from the first pages of a research paper,
+produce a JSON object with exactly these keys:
+
+{
+  "title":       "<clean title string>",
+  "authors":     "<Author names, or 'Multiple Authors' if unclear>",
+  "year":        <4-digit integer year>,
+  "preview":     "<1-sentence plain-English description of what the paper does>",
+  "summary":     "<2-3 sentence technical summary covering: what it proposes, key method, and main result>",
+  "datacenter":  "<1-2 sentences on relevance to AI datacenter infrastructure (training, inference, networking, memory, or TCO)>",
+  "metrics":     "<1 sentence starting 'Key result signal:' describing the most important quantitative or qualitative result>",
+  "citation_count": 0
+}
+
+Rules:
+- Use only information present in the text. Do not invent results.
+- If you cannot determine the year, use the year hint provided.
+- Return ONLY the JSON object, no markdown, no prose.
+"""
+
+
+def _generate_metadata_from_pdf(pdf_path, title_hint, year_hint):
+    """Extract text from the first pages of a local PDF and call LLM to generate metadata."""
+    client = _get_azure_client()
+    if not client:
+        return None
+    deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
+
+    try:
+        doc = fitz.open(pdf_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+            if len(text) >= 4000:
+                break
+        doc.close()
+        text = text[:4000]
+    except Exception as e:
+        print(f"  [ImportMetadata] PDF text extraction failed: {e}")
+        return None
+
+    if not text.strip():
+        return None
+
+    user_content = f"Title hint: {title_hint}\nYear hint: {year_hint}\n\nExtracted text (first pages):\n{text}"
+    try:
+        completion = client.chat.completions.create(
+            model=deployment,
+            messages=[
+                {"role": "system", "content": _IMPORT_METADATA_PROMPT},
+                {"role": "user",   "content": user_content},
+            ],
+            max_tokens=600,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        return json.loads(raw)
+    except Exception as e:
+        print(f"  [ImportMetadata] LLM metadata generation failed: {e}")
+        return None
+
+
+@app.route("/api/papers/import-discovery", methods=["POST"])
+@login_required
+def api_import_discovery():
+    """Import a discovery paper into the library.
+
+    Downloads the PDF, generates metadata via LLM, and stores in the papers table.
+    """
+    data = request.get_json(silent=True) or {}
+    paper_id = (data.get("id") or "").strip()
+    if not paper_id:
+        return jsonify({"error": "Paper id is required"}), 400
+
+    # Look up in discovery cache
+    with _discovery_cache_lock:
+        discovery = _discovery_cache.get(paper_id)
+    if not discovery:
+        return jsonify({"error": "Paper not found in discovery results. Try searching again."}), 404
+
+    # Check if already in library
+    existing = get_paper(paper_id)
+    if existing:
+        return jsonify({"error": "Paper already in library", "paper": existing}), 409
+
+    pdf_url = (discovery.get("pdf_url") or discovery.get("link") or "").strip()
+    title = discovery.get("title", "Untitled")
+    year = discovery.get("year", datetime.datetime.now().year)
+    source = discovery.get("source", "discovery")
+
+    pdf_path = None
+    image_path = None
+
+    # ── Download PDF ──────────────────────────────────────────────────
+    if pdf_url:
+        normalized_url = _normalize_discovery_pdf_url(pdf_url)
+        safe_name = slugify(title)[:80] + ".pdf"
+        save_path = os.path.join(PAPER_FOLDER, safe_name)
+
+        # Avoid overwriting existing files
+        counter = 1
+        while os.path.exists(save_path):
+            safe_name = slugify(title)[:75] + f"-{counter}.pdf"
+            save_path = os.path.join(PAPER_FOLDER, safe_name)
+            counter += 1
+
+        try:
+            r = http_requests.get(normalized_url, timeout=60, proxies=_proxies, stream=True)
+            if r.ok:
+                with open(save_path, "wb") as f:
+                    for chunk in r.iter_content(8192):
+                        f.write(chunk)
+                pdf_path = f"{PAPER_FOLDER}/{safe_name}"
+                print(f"  [Import] Downloaded PDF: {pdf_path}")
+            else:
+                print(f"  [Import] PDF download failed (HTTP {r.status_code}): {normalized_url}")
+        except Exception as e:
+            print(f"  [Import] PDF download error: {e}")
+
+    # ── Generate metadata via LLM if PDF available ────────────────────
+    generated_meta = None
+    if pdf_path and os.path.exists(pdf_path):
+        generated_meta = _generate_metadata_from_pdf(pdf_path, title, year)
+
+    # Build final paper record: LLM metadata > discovery metadata > defaults
+    gm = generated_meta or {}
+    paper = {
+        "id": paper_id,
+        "title": gm.get("title") or title,
+        "authors": gm.get("authors") or discovery.get("authors", ""),
+        "year": gm.get("year") or year,
+        "citation_count": int(discovery.get("citation_count") or gm.get("citation_count", 0) or 0),
+        "preview": gm.get("preview") or discovery.get("preview", ""),
+        "summary": gm.get("summary") or discovery.get("summary", ""),
+        "datacenter": gm.get("datacenter") or discovery.get("datacenter", ""),
+        "metrics": gm.get("metrics") or discovery.get("metrics", ""),
+        "link": discovery.get("link") or pdf_url or "",
+        "pdf_path": pdf_path,
+        "image_path": image_path,
+        "source": source,
+        "groups": ["latest"],
+        "pinned": 0,
+    }
+
+    result = add_from_discovery(paper)
+    notify_clients()
+    return jsonify(result), 201
+
+
 # ── SSE endpoint ────────────────────────────────────────────────────────────
 
 @app.route("/api/changes")
@@ -2970,10 +3123,6 @@ init_db()
 # Start folder watcher on a background daemon thread
 _watcher = threading.Thread(target=watch_loop, daemon=True)
 _watcher.start()
-
-# Start external index refresh on a background daemon thread
-_index_refresher = threading.Thread(target=_index_refresh_loop, daemon=True)
-_index_refresher.start()
 
 if __name__ == "__main__":
     print(f"\n  Open: http://localhost:5000/")

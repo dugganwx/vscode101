@@ -216,7 +216,7 @@ function _hwImportanceScore(paper) {
 
 function tagImportantPapers(paperList) {
   const TOP_N = 5;
-  const eligible = paperList.filter((p) => !p._hasSidecarGroups);
+  const eligible = paperList.filter((p) => !p.pinned);
   eligible.slice().sort((a, b) => _hwImportanceScore(b) - _hwImportanceScore(a))
     .forEach((paper, idx) => {
       if (idx < TOP_N) {
@@ -271,8 +271,10 @@ async function _refreshCitationCounts() {
     // Re-render whichever library view is active
     const activePage = document.querySelector(".page-section.page-active");
     if (activePage && activePage.id === "page-library-view") {
+      const scrollY = window.scrollY;
       renderLibraryView();
       renderFullSections();
+      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     }
   } catch (_) {}
 }
@@ -291,15 +293,16 @@ async function fetchPapersFromApi() {
     _lastPapersJSON = json;
     dynamicLocalPapers = data.map((p) => ({
       ...p, isLocal: true,
-      _hasSidecarGroups: !!p._hasSidecarGroups,
       groups: Array.isArray(p.groups) ? p.groups : [],
     }));
     rebuildPapers();
-    // Re-render whichever page is active
+    // Re-render whichever page is active, preserving scroll position
     const activePage = document.querySelector(".page-section.page-active");
     if (activePage) {
+      const scrollY = window.scrollY;
       if (activePage.id === "page-search-library") renderSearchLibrary();
       if (activePage.id === "page-library-view") { renderLibraryView(); renderFullSections(); }
+      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     }
   } catch (_) {}
 }
@@ -338,7 +341,7 @@ const _imgPlaceholder = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
 async function generateImagesForPaper(paperId) {
   const res = await fetch(`/api/papers/${encodeURIComponent(paperId)}/generate-images`, { method: "POST" });
   const data = await res.json();
-  if (!res.ok && !data.best_figure && !data.generated_infographic) {
+  if (!res.ok && !data.image_path) {
     throw new Error((data.errors || []).join("; ") || "Image generation failed");
   }
   return data;
@@ -728,7 +731,7 @@ function downloadPaperMetadata(paper) {
 function _buildImageBlock(paper, libraryViewMode) {
   // Library View mode: show ONLY the infographic (no best_figure)
   if (paper.isLocal && libraryViewMode) {
-    const infoSrc = paper.generated_infographic || paper.infographic;
+    const infoSrc = paper.image_path;
     if (infoSrc) {
       return `<div class="card-image-wrap">
         <img class="card-image card-image-wide" src="${escapeHtml(infoSrc)}" alt="Infographic" />
@@ -745,7 +748,7 @@ function _buildImageBlock(paper, libraryViewMode) {
 
   // Search Library mode: show ONLY the infographic (no best_figure)
   if (paper.isLocal) {
-    const infoSrc = paper.generated_infographic || paper.infographic;
+    const infoSrc = paper.image_path;
     if (infoSrc) {
       return `<div class="card-image-wrap">
         <img class="card-image card-image-wide" src="${escapeHtml(infoSrc)}" alt="Infographic" />
@@ -1096,7 +1099,8 @@ function renderExpandedCard(paper, libraryViewMode) {
   // Action button
   let actionHtml = "";
   if (paper.isLocal) {
-    actionHtml = `<a class="solid-link" href="${escapeHtml(paper.link)}" target="_blank" rel="noopener noreferrer">Open PDF</a>`;
+    const pdfHref = paper.pdf_path || paper.link;
+    actionHtml = `<a class="solid-link" href="${escapeHtml(pdfHref)}" target="_blank" rel="noopener noreferrer">Open PDF</a>`;
   } else if (paper.link) {
     actionHtml = `<a class="solid-link" href="${escapeHtml(paper.link)}" target="_blank" rel="noopener noreferrer">Link to Paper</a>`;
   }
@@ -1126,8 +1130,13 @@ function renderExpandedCard(paper, libraryViewMode) {
     const pickBtnHtml = (libraryViewMode && _currentUserIsAdmin)
       ? `<button class="ghost-link matts-pick-btn" type="button" data-id="${paper.id}">${isPicked ? "\u2605 Matt\u2019s Pick" : "\u2606 Matt\u2019s Pick"}</button>`
       : "";
+    const hasBlankMeta = !paper.preview || !paper.summary || !paper.datacenter || !paper.metrics || !paper.authors;
+    const genMetaBtn = (hasBlankMeta && paper.pdf_path)
+      ? `<button class="ghost-link generate-meta-btn" type="button" data-id="${paper.id}">Generate Metadata</button>`
+      : "";
     editBtns = `
       <button class="ghost-link edit-paper-btn" type="button" data-id="${paper.id}">Edit</button>
+      ${genMetaBtn}
       ${pickBtnHtml}
       ${deleteBtnHtml}`;
   }
@@ -1196,8 +1205,33 @@ function renderExpandedCard(paper, libraryViewMode) {
 
   const addLibraryBtn = card.querySelector(".add-library-btn");
   if (addLibraryBtn) {
-    addLibraryBtn.addEventListener("click", () => {
-      alert("Add to Library is a placeholder button. Current backend library ingest requires uploading a PDF file via Search Library.");
+    addLibraryBtn.addEventListener("click", async () => {
+      addLibraryBtn.disabled = true;
+      addLibraryBtn.textContent = "Importing…";
+      try {
+        const res = await fetch("/api/papers/import-discovery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: paper.id }),
+        });
+        const result = await res.json();
+        if (res.ok) {
+          addLibraryBtn.textContent = "✓ Added";
+          addLibraryBtn.classList.add("btn-success");
+          // Refresh library data
+          await fetchPapersFromApi();
+        } else if (res.status === 409) {
+          addLibraryBtn.textContent = "Already in Library";
+        } else {
+          addLibraryBtn.textContent = "Add to Library";
+          addLibraryBtn.disabled = false;
+          alert(result.error || "Import failed");
+        }
+      } catch (err) {
+        addLibraryBtn.textContent = "Add to Library";
+        addLibraryBtn.disabled = false;
+        alert("Import failed: " + err.message);
+      }
     });
   }
 
@@ -1220,6 +1254,26 @@ function renderExpandedCard(paper, libraryViewMode) {
 
   const editBtn = card.querySelector(".edit-paper-btn");
   if (editBtn) editBtn.addEventListener("click", () => showEditForm(paper, card));
+
+  const genMetaBtnEl = card.querySelector(".generate-meta-btn");
+  if (genMetaBtnEl) {
+    genMetaBtnEl.addEventListener("click", async () => {
+      genMetaBtnEl.disabled = true;
+      genMetaBtnEl.textContent = "Generating\u2026";
+      try {
+        const res = await fetch(`/api/papers/${encodeURIComponent(paper.id)}/generate-metadata`, { method: "POST" });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || result.message || "Failed");
+        if (result.paper) Object.assign(paper, result.paper);
+        const newCard = renderExpandedCard(paper, card.closest("#page-library-view") !== null);
+        card.replaceWith(newCard);
+      } catch (e) {
+        genMetaBtnEl.disabled = false;
+        genMetaBtnEl.textContent = "Failed \u2014 Retry";
+        genMetaBtnEl.title = e.message;
+      }
+    });
+  }
 
   const deleteBtn = card.querySelector(".delete-paper-btn");
   if (deleteBtn) deleteBtn.addEventListener("click", async () => {
@@ -1251,8 +1305,8 @@ function renderExpandedCard(paper, libraryViewMode) {
       try {
         const res = await fetch(`/api/papers/${encodeURIComponent(paper.id)}/generate-infographic`, { method: "POST" });
         const result = await res.json();
-        if (!res.ok || !result.generated_infographic) throw new Error((result.errors || []).join("; ") || "Failed");
-        paper.generated_infographic = result.generated_infographic;
+        if (!res.ok || !result.image_path) throw new Error((result.errors || []).join("; ") || "Failed");
+        paper.image_path = result.image_path;
         const newCard = renderExpandedCard(paper, true);
         card.replaceWith(newCard);
       } catch (e) {
@@ -1272,8 +1326,7 @@ function renderExpandedCard(paper, libraryViewMode) {
       try {
         const result = await generateImagesForPaper(paper.id);
         // Update paper object in-place and re-render card
-        if (result.best_figure) paper.best_figure = result.best_figure;
-        if (result.generated_infographic) paper.generated_infographic = result.generated_infographic;
+        if (result.image_path) paper.image_path = result.image_path;
         const newCard = renderExpandedCard(paper, false);
         card.replaceWith(newCard);
       } catch (e) {
@@ -1633,13 +1686,11 @@ function renderFullSections() {
   if (!sectionEl) return;
   const filtered = filterPapers();
   sectionEl.innerHTML = filtered.map((paper) => {
-    const infoSrc = paper.generated_infographic || paper.infographic;
-    const figSrc = paper.best_figure;
+    const imgSrc = paper.image_path;
     let imageBlock = "";
-    if (infoSrc || figSrc) {
+    if (imgSrc) {
       imageBlock = `<div class="summary-image-scroller"><div class="summary-image-pair">
-        ${infoSrc ? `<figure class="infographic-figure"><img class="paper-infographic" src="${encodeURI(infoSrc)}" alt="Infographic" /></figure>` : ""}
-        ${figSrc ? `<figure class="infographic-figure"><img class="paper-infographic" src="${encodeURI(figSrc)}" alt="Key figure" /></figure>` : ""}
+        <figure class="infographic-figure"><img class="paper-infographic" src="${encodeURI(imgSrc)}" alt="Infographic" /></figure>
       </div></div>`;
     }
     const linkLabel = paper.isLocal ? "Open PDF" : "Link to Paper";
@@ -1653,7 +1704,7 @@ function renderFullSections() {
       <p><strong>Summary:</strong> ${escapeHtml(paper.summary)}</p>
       <p><strong>Datacenter Significance:</strong> ${escapeHtml(paper.datacenter)}</p>
       <p><strong>Key Result Signal:</strong> ${escapeHtml(paper.metrics)}</p>
-      <p><a href="${escapeHtml(paper.link)}" target="_blank" rel="noopener noreferrer">${linkLabel}</a></p>
+      <p><a href="${escapeHtml(paper.pdf_path || paper.link)}" target="_blank" rel="noopener noreferrer">${linkLabel}</a></p>
     </article>`;
   }).join("");
 }
@@ -2085,12 +2136,6 @@ function init() {
   fetchPapersFromApi();
   _setDiscoveryProgressBar(0, 0, false, "Search first, then click one team rank button.");
   _setAllRankButtonsDisabled(true);
-
-  // Fetch visit counter
-  fetch("/api/visit-count").then(r => r.json()).then(data => {
-    const el = document.getElementById("visitCount");
-    if (el) el.textContent = data.count.toLocaleString();
-  }).catch(() => {});
 
   // SSE for live updates
   const sse = new EventSource("/api/changes");
