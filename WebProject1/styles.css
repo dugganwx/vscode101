@@ -11,6 +11,20 @@
   --accent: #c66b2f;
   --radius: 18px;
   --shadow: 0 12px 30px rgba(19, 32, 40, 0.12);
+
+  /* Team colors */
+  --team-oie: #4472b0;
+  --team-oie-dark: #365d93;
+  --team-oie-light: #f0f4f9;
+  --team-e2o: #7054a0;
+  --team-e2o-dark: #5c4588;
+  --team-e2o-light: #f4f2f9;
+  --team-ai-on-ia: #3d8b80;
+  --team-ai-on-ia-dark: #2f7068;
+  --team-ai-on-ia-light: #f0f7f6;
+  --team-federal: #b07d2e;
+  --team-federal-dark: #916520;
+  --team-federal-light: #faf6ed;
 }
 
 * {
@@ -185,12 +199,28 @@ h1 {
   border-radius: 10px;
 }
 
+.pico-label {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--muted);
+  align-self: center;
+}
+
+.discovery-section-heading {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 24px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--line);
+  letter-spacing: 0.01em;
+}
+
 .ranking-criteria-pill-group {
-  margin-left: auto;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 
 .ranking-criteria-pill {
@@ -364,9 +394,9 @@ h1 {
 /* ── Discovery search button ─────────────────────────── */
 
 .discovery-btn {
-  background: var(--accent) !important;
+  background: #e11d48 !important;
   color: #ffffff !important;
-  border-color: var(--accent) !important;
+  border-color: #e11d48 !important;
   font-weight: 600;
   letter-spacing: 0.02em;
   animation: pulse-ring 2.4s ease-out infinite;
@@ -374,9 +404,9 @@ h1 {
 
 .discovery-btn:hover,
 .discovery-btn:focus-visible {
-  background: #b55e26 !important;
-  border-color: #b55e26 !important;
-  box-shadow: 0 6px 18px rgba(198, 107, 47, 0.35);
+  background: #be123c !important;
+  border-color: #be123c !important;
+  box-shadow: 0 6px 18px rgba(225, 29, 72, 0.35);
   animation: none;
 }
 
@@ -443,6 +473,180 @@ h1 {
   background: var(--line) !important;
   border-color: var(--line) !important;
   color: var(--muted) !important;
+}
+
+/* ── Team-colored ranking criteria pills ─────────────── */
+
+.ranking-criteria-pill[data-team="oie"] {
+  color: #fff;
+  border-color: var(--team-oie);
+  background: var(--team-oie);
+}
+.ranking-criteria-pill[data-team="oie"]:hover {
+  background: var(--team-oie-dark);
+  color: #fff;
+  border-color: var(--team-oie-dark);
+}
+
+.ranking-criteria-pill[data-team="e2o"] {
+  color: #fff;
+  border-color: var(--team-e2o);
+  background: var(--team-e2o);
+}
+.ranking-criteria-pill[data-team="e2o"]:hover {
+  background: var(--team-e2o-dark);
+  color: #fff;
+  border-color: var(--team-e2o-dark);
+}
+
+.ranking-criteria-pill[data-team="ai_on_ia"] {
+  color: #fff;
+  border-color: var(--team-ai-on-ia);
+  background: var(--team-ai-on-ia);
+}
+.ranking-criteria-pill[data-team="ai_on_ia"]:hover {
+  background: var(--team-ai-on-ia-dark);
+  color: #fff;
+  border-color: var(--team-ai-on-ia-dark);
+}
+
+.ranking-criteria-pill[data-team="hickory_delta"] {
+  color: #fff;
+  border-color: var(--team-federal);
+  background: var(--team-federal);
+}
+.ranking-criteria-pill[data-team="hickory_delta"]:hover {
+  background: var(--team-federal-dark);
+  color: #fff;
+  border-color: var(--team-federal-dark);
+}
+
+/* ── Team-colored rank buttons ───────────────────────── */
+
+.rank-papers-btn[data-team="oie"] {
+  background: var(--team-oie) !important;
+  border-color: var(--team-oie) !important;
+  color: #ffffff !important;
+}
+.rank-papers-btn[data-team="oie"]:hover,
+.rank-papers-btn[data-team="oie"]:focus-visible {
+  background: var(--team-oie-dark) !important;
+  border-color: var(--team-oie-dark) !important;
+}
+
+.rank-papers-btn[data-team="e2o"] {
+  background: var(--team-e2o) !important;
+  border-color: var(--team-e2o) !important;
+  color: #ffffff !important;
+}
+.rank-papers-btn[data-team="e2o"]:hover,
+.rank-papers-btn[data-team="e2o"]:focus-visible {
+  background: var(--team-e2o-dark) !important;
+  border-color: var(--team-e2o-dark) !important;
+}
+
+.rank-papers-btn[data-team="ai_on_ia"] {
+  background: var(--team-ai-on-ia) !important;
+  border-color: var(--team-ai-on-ia) !important;
+  color: #ffffff !important;
+}
+.rank-papers-btn[data-team="ai_on_ia"]:hover,
+.rank-papers-btn[data-team="ai_on_ia"]:focus-visible {
+  background: var(--team-ai-on-ia-dark) !important;
+  border-color: var(--team-ai-on-ia-dark) !important;
+}
+
+.rank-papers-btn[data-team="hickory_delta"] {
+  background: var(--team-federal) !important;
+  border-color: var(--team-federal) !important;
+  color: #ffffff !important;
+}
+.rank-papers-btn[data-team="hickory_delta"]:hover,
+.rank-papers-btn[data-team="hickory_delta"]:focus-visible {
+  background: var(--team-federal-dark) !important;
+  border-color: var(--team-federal-dark) !important;
+}
+
+/* ── Team-colored search topic pills ─────────────────── */
+
+.topic-pill[data-team-group="oie"] {
+  border-color: var(--team-oie);
+  color: #fff;
+  background: var(--team-oie);
+}
+.topic-pill[data-team-group="oie"]:hover {
+  background: var(--team-oie-dark);
+  color: #fff;
+  border-color: var(--team-oie-dark);
+}
+.topic-pill[data-team-group="oie"].topic-pill--active {
+  background: var(--team-oie-dark);
+  border-color: var(--team-oie-dark);
+  color: #fff;
+}
+.topic-pill[data-team-group="oie"].topic-pill--active:hover {
+  background: var(--team-oie-dark);
+  border-color: var(--team-oie-dark);
+}
+
+.topic-pill[data-team-group="e2o"] {
+  border-color: var(--team-e2o);
+  color: #fff;
+  background: var(--team-e2o);
+}
+.topic-pill[data-team-group="e2o"]:hover {
+  background: var(--team-e2o-dark);
+  color: #fff;
+  border-color: var(--team-e2o-dark);
+}
+.topic-pill[data-team-group="e2o"].topic-pill--active {
+  background: var(--team-e2o-dark);
+  border-color: var(--team-e2o-dark);
+  color: #fff;
+}
+.topic-pill[data-team-group="e2o"].topic-pill--active:hover {
+  background: var(--team-e2o-dark);
+  border-color: var(--team-e2o-dark);
+}
+
+.topic-pill[data-team-group="ai_on_ia"] {
+  border-color: var(--team-ai-on-ia);
+  color: #fff;
+  background: var(--team-ai-on-ia);
+}
+.topic-pill[data-team-group="ai_on_ia"]:hover {
+  background: var(--team-ai-on-ia-dark);
+  color: #fff;
+  border-color: var(--team-ai-on-ia-dark);
+}
+.topic-pill[data-team-group="ai_on_ia"].topic-pill--active {
+  background: var(--team-ai-on-ia-dark);
+  border-color: var(--team-ai-on-ia-dark);
+  color: #fff;
+}
+.topic-pill[data-team-group="ai_on_ia"].topic-pill--active:hover {
+  background: var(--team-ai-on-ia-dark);
+  border-color: var(--team-ai-on-ia-dark);
+}
+
+.topic-pill[data-team-group="hickory_delta"] {
+  border-color: var(--team-federal);
+  color: #fff;
+  background: var(--team-federal);
+}
+.topic-pill[data-team-group="hickory_delta"]:hover {
+  background: var(--team-federal-dark);
+  color: #fff;
+  border-color: var(--team-federal-dark);
+}
+.topic-pill[data-team-group="hickory_delta"].topic-pill--active {
+  background: var(--team-federal-dark);
+  border-color: var(--team-federal-dark);
+  color: #fff;
+}
+.topic-pill[data-team-group="hickory_delta"].topic-pill--active:hover {
+  background: var(--team-federal-dark);
+  border-color: var(--team-federal-dark);
 }
 
 .discovery-progress-wrap {

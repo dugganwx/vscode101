@@ -47,7 +47,7 @@ let _discoveryEmptyReason = "";
 let _discoveryProgressPollTimer = null;
 let _discoverySearchInFlight = false;
 let _discoveryRankInFlight = false;
-let _discoverySearchContext = { query: "", year_from: "2020", year_to: "2026" };
+let _discoverySearchContext = { query: "", year_from: "2025", year_to: "2026" };
 
 // ── Discovery state persistence (sessionStorage) ──────────────────────────
 const _DISCOVERY_STORAGE_KEY = "discovery_state";
@@ -78,7 +78,7 @@ function _restoreDiscoveryState() {
     _discoverySourceErrors = s.sourceErrors || { arxiv: null, openalex: null, "core-pr": null };
     _discoveryExpandedTerms = Array.isArray(s.expandedTerms) ? s.expandedTerms : [];
     _discoveryEmptyReason = s.emptyReason || "";
-    _discoverySearchContext = s.searchContext || { query: "", year_from: "2020", year_to: "2026" };
+    _discoverySearchContext = s.searchContext || { query: "", year_from: "2025", year_to: "2026" };
     if (discoveryQueryEl && s.queryText) discoveryQueryEl.textContent = s.queryText;
     if (discoveryStatusEl && s.statusText) discoveryStatusEl.textContent = s.statusText;
     // Restore search input and year fields
@@ -103,7 +103,7 @@ const _rankingTeams = {
   oie: { code: "OIE", label: "OIE - AI on GPU Optimization" },
   e2o: { code: "E2O", label: "E2O - Network, Switch, Optical" },
   ai_on_ia: { code: "AI on iA", label: "AI on iA - Agentic and Head Node CPU Optimization" },
-  hickory_delta: { code: "Hickory Delta", label: "Hickory Delta - Cache, Reliability, Wafer Scale" },
+  hickory_delta: { code: "Federal Research", label: "Federal Research - Cache, Reliability, Wafer Scale" },
 };
 
 function _getTeamLabel(teamId) {
@@ -1523,14 +1523,15 @@ async function handleFindNewPapers() {
   _discoveryExpandedTerms = [];
   _renderExpandedTerms();
   renderDiscoveryFeed();
-  _setDiscoveryProgressBar(0, 0, false, "Searching sources only. Click one team rank button after results appear.");
+  _setDiscoveryProgressBar(0, 1, true, "Starting search...");
+  _startDiscoveryProgressPolling();
 
   try {
     const searchInput = document.getElementById("discoverySearchInput");
     const query = searchInput ? searchInput.value.trim() : "";
     const yearFromEl = document.getElementById("yearFrom");
     const yearToEl = document.getElementById("yearTo");
-    const yearFrom = yearFromEl ? yearFromEl.value : "2020";
+    const yearFrom = yearFromEl ? yearFromEl.value : "2025";
     const yearTo = yearToEl ? yearToEl.value : "2026";
 
     const params = new URLSearchParams();
@@ -1573,6 +1574,7 @@ async function handleFindNewPapers() {
     } else {
       discoveryStatusEl.textContent = `Search complete. ${discoveredWebPapers.length} papers loaded. Click a team rank button to score.`;
     }
+    _stopDiscoveryProgressPolling();
     _setDiscoveryProgressBar(0, 0, false, "Search complete. Click a team rank button to start AI ranking.");
     _setRankButtonsEnabledByResults();
     _saveDiscoveryState();
@@ -1581,6 +1583,7 @@ async function handleFindNewPapers() {
     _discoveryEmptyReason = error.message || "Search failed.";
     renderDiscoveryFeed();
     discoveryStatusEl.textContent = `Search failed: ${error.message}`;
+    _stopDiscoveryProgressPolling();
     _setDiscoveryProgressBar(0, 0, false, "Search failed.");
     _setAllRankButtonsDisabled(true);
   } finally {

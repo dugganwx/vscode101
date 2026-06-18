@@ -36,15 +36,11 @@
         <div class="discovery-title-row">
           <h2 class="page-title">AI Paper Discovery Zone</h2>
           <img class="discovery-pico" src="AI papers for WebProject1/Pico1.jpg" alt="Pico" />
-          <div class="ranking-criteria-pill-group" aria-label="Team ranking question sets">
-            <button id="rankingCriteriaPillOieBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="oie">OIE Questions</button>
-            <button id="rankingCriteriaPillE2oBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="e2o">E2O Questions</button>
-            <button id="rankingCriteriaPillAiOnIaBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="ai_on_ia">AI on iA Questions</button>
-            <button id="rankingCriteriaPillHickoryBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="hickory_delta">Hickory Delta Questions</button>
-          </div>
+          <span class="pico-label">Hi, I am Pico your technical paper search bot.</span>
         </div>
-        <p id="discoveryQuery" class="discovery-copy"></p>
-        <p id="discoveryExpandedTerms" class="discovery-copy discovery-expanded-terms" hidden></p>
+
+        <!-- ═══ Section 1: Search for Technical Papers ═══ -->
+        <h3 class="discovery-section-heading">1. Search for Technical Papers</h3>
 
         <div class="discovery-search-bar">
           <input id="discoverySearchInput" class="search-input-full" type="search"
@@ -57,23 +53,32 @@
         </div>
 
         <div class="discovery-topics" aria-label="Quick topic shortcuts">
-          <button class="topic-pill" type="button" data-query="mixture of experts MoE sparse routing">MoE &amp; Sparse Models</button>
-          <button class="topic-pill" type="button" data-query="LLM inference optimization serving throughput latency">Inference Optimization</button>
-          <button class="topic-pill" type="button" data-query="GPU architecture AI accelerator CUDA tensor cores">GPU Architecture</button>
-          <button class="topic-pill" type="button" data-query="large language model training distributed pretraining scaling laws">LLM Training</button>
-          <button class="topic-pill" type="button" data-query="agentic AI autonomous LLM agents planning tool use">Agentic AI</button>
-          <button class="topic-pill" type="button" data-query="quantization compression pruning efficient LLM deployment">Quantization &amp; Compression</button>
-          <button class="topic-pill" type="button" data-query="KV cache memory optimization flash attention transformer">Memory &amp; KV Cache</button>
-          <button class="topic-pill" type="button" data-query="datacenter interconnect NVLink networking optical AI cluster">Interconnects &amp; Networking</button>
-          <button class="topic-pill" type="button" data-query="distributed weight data parallelism DWDP tensor model pipeline parallelism LLM training">Distributed Weight Data Parallelism</button>
-          <button class="topic-pill" type="button" data-query="collectives acceleration all-reduce all-gather scatter reduce AI distributed training hardware">Collectives Acceleration</button>
+          <!-- OIE (Blue) -->
+          <button class="topic-pill" type="button" data-query="mixture of experts MoE sparse routing" data-team-group="oie">MoE &amp; Sparse Models</button>
+          <button class="topic-pill" type="button" data-query="LLM inference optimization serving throughput latency" data-team-group="oie">Inference Optimization</button>
+          <button class="topic-pill" type="button" data-query="GPU architecture AI accelerator CUDA tensor cores" data-team-group="oie">GPU Architecture</button>
+          <button class="topic-pill" type="button" data-query="large language model training distributed pretraining scaling laws" data-team-group="oie">LLM Training</button>
+          <button class="topic-pill" type="button" data-query="distributed weight data parallelism DWDP tensor model pipeline parallelism LLM training" data-team-group="oie">Distributed Weight Data Parallelism</button>
+          <button class="topic-pill" type="button" data-query="collectives acceleration all-reduce all-gather scatter reduce AI distributed training hardware" data-team-group="oie">Collectives Acceleration</button>
+          <!-- E2O (Purple) -->
+          <button class="topic-pill" type="button" data-query="quantization compression pruning efficient LLM deployment" data-team-group="e2o">Quantization &amp; Compression</button>
+          <button class="topic-pill" type="button" data-query="datacenter interconnect NVLink networking optical AI cluster" data-team-group="e2o">Interconnects &amp; Networking</button>
+          <button class="topic-pill" type="button" data-query="collectives offload network offload RDMA SmartNIC DPU hardware acceleration" data-team-group="e2o">Collectives Offload</button>
+          <button class="topic-pill" type="button" data-query="NVLink NVSwitch GPU interconnect high bandwidth multi-GPU communication" data-team-group="e2o">NVLink</button>
+          <!-- AI on iA (Teal) -->
+          <button class="topic-pill" type="button" data-query="agentic AI autonomous LLM agents planning tool use" data-team-group="ai_on_ia">Agentic AI</button>
+          <button class="topic-pill" type="button" data-query="KV cache memory optimization flash attention transformer" data-team-group="ai_on_ia">Memory &amp; KV Cache</button>
+          <!-- Federal Research (Amber) -->
+          <button class="topic-pill" type="button" data-query="DDIO Data Direct IO cache injection PCIe DMA network" data-team-group="hickory_delta">DDIO</button>
+          <button class="topic-pill" type="button" data-query="cache optimization techniques last level cache prefetching cache partitioning CPU memory hierarchy" data-team-group="hickory_delta">Cache Optimization Techniques</button>
+          <button class="topic-pill" type="button" data-query="HPC reliability fault tolerance resilient computing error correction high performance computing" data-team-group="hickory_delta">HPC Reliability</button>
         </div>
 
         <!-- Year range slider -->
         <div class="year-range-wrap">
-          <label class="year-range-label">Publication Year Range</label>
+          <label class="year-range-label">Select Publication Year Range to be Searched</label>
           <div class="year-slider-track">
-            <input type="range" id="yearFrom" class="year-slider year-slider-from" min="2020" max="2026" value="2020" step="1" />
+            <input type="range" id="yearFrom" class="year-slider year-slider-from" min="2020" max="2026" value="2025" step="1" />
             <input type="range" id="yearTo" class="year-slider year-slider-to" min="2020" max="2026" value="2026" step="1" />
           </div>
           <div class="year-labels">
@@ -87,6 +92,22 @@
           </div>
         </div>
 
+        <!-- ═══ Section 2: Prepare for Ranking ═══ -->
+        <h3 class="discovery-section-heading">2. Prepare for Ranking &mdash; Establish Criteria to Evaluate &amp; Weight Each Paper</h3>
+
+        <div class="ranking-criteria-pill-group" aria-label="Team ranking question sets">
+          <button id="rankingCriteriaPillOieBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="oie">OIE Questions</button>
+          <button id="rankingCriteriaPillE2oBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="e2o">E2O Questions</button>
+          <button id="rankingCriteriaPillAiOnIaBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="ai_on_ia">AI on iA Questions</button>
+          <button id="rankingCriteriaPillHickoryBtn" class="topic-pill ranking-criteria-pill" type="button" data-team="hickory_delta">Federal Research Questions</button>
+        </div>
+
+        <!-- ═══ Section 3: Score & Rank Using LLM ═══ -->
+        <h3 class="discovery-section-heading">3. Score &amp; Rank Technical Papers Using an LLM</h3>
+
+        <p id="discoveryQuery" class="discovery-copy"></p>
+        <p id="discoveryExpandedTerms" class="discovery-copy discovery-expanded-terms" hidden></p>
+
         <div class="discovery-status-row">
           <span id="discoveryCount" class="feed-count"></span>
           <span id="discoveryStatus" class="discovery-status" aria-live="polite">Ready to search.</span>
@@ -96,7 +117,7 @@
           <button id="rankOieBtn" class="nav-btn rank-papers-btn" type="button" data-team="oie" disabled>Rank OIE</button>
           <button id="rankE2oBtn" class="nav-btn rank-papers-btn" type="button" data-team="e2o" disabled>Rank E2O</button>
           <button id="rankAiOnIaBtn" class="nav-btn rank-papers-btn" type="button" data-team="ai_on_ia" disabled>Rank AI on iA</button>
-          <button id="rankHickoryBtn" class="nav-btn rank-papers-btn" type="button" data-team="hickory_delta" disabled>Rank Hickory Delta</button>
+          <button id="rankHickoryBtn" class="nav-btn rank-papers-btn" type="button" data-team="hickory_delta" disabled>Rank Federal Research</button>
           <button id="clipboardToggleBtn" class="nav-btn clipboard-toggle-nav-btn" type="button" title="Open/close clipboard">&#128203; Clipboard (<span id="clipboardCountBadge">0</span>)</button>
         </div>
 
@@ -106,6 +127,9 @@
           </div>
           <div id="discoveryProgressText" class="discovery-progress-text">Search first, then click Rank Papers.</div>
         </div>
+
+        <!-- ═══ Section 4: View the Technical Papers ═══ -->
+        <h3 class="discovery-section-heading">4. View the Technical Papers</h3>
 
         <div id="discoveryFeed" class="card-grid" aria-label="AI-powered search result cards"></div>
       </div>
@@ -138,6 +162,7 @@
         <div class="discovery-title-row">
           <h2 class="page-title">Search Library</h2>
           <img class="discovery-pico" src="AI papers for WebProject1/Pico1.jpg" alt="Pico" />
+          <span class="pico-label">Hi, I am Pico your technical paper search bot.</span>
         </div>
 
         <div class="library-search-bar">

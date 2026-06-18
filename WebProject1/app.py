@@ -842,7 +842,7 @@ _RANKING_TEAMS = {
     "oie": "OIE - AI on GPU Optimization",
     "e2o": "E2O - Network, Switch, Optical",
     "ai_on_ia": "AI on iA - Agentic and Head Node CPU Optimization",
-    "hickory_delta": "Hickory Delta - Cache, Reliability, Wafer Scale",
+    "hickory_delta": "Federal Research - Cache, Reliability, Wafer Scale",
 }
 
 _ARCH_SCORE_WEIGHTS = {
@@ -1962,7 +1962,7 @@ _PREFILTER_TEAM_FOCUS = {
         "serialization overhead, and head-node performance."
     ),
     "hickory_delta": (
-        "Hickory Delta - Cache, Reliability, Wafer Scale: cache and memory hierarchy design, "
+        "Federal Research - Cache, Reliability, Wafer Scale: cache and memory hierarchy design, "
         "coherence protocols, wafer-scale integration, reliability/fault tolerance, "
         "and long-horizon architectural innovations."
     ),
@@ -2658,7 +2658,7 @@ def api_discover_search():
     with _discovery_cache_lock:
         _discovery_cache.clear()
     query_text = request.args.get("q", "").strip()
-    year_from = _parse_year_param(request.args.get("year_from", "2020", type=str), 2020)
+    year_from = _parse_year_param(request.args.get("year_from", "2025", type=str), 2025)
     year_to = _parse_year_param(request.args.get("year_to", "2026", type=str), 2026)
     if year_from > year_to:
         year_from, year_to = year_to, year_from
@@ -2701,22 +2701,49 @@ def api_discover_search():
     deployment = cfg.get("deployment", "gpt-4o")
     client = _get_azure_client()
     if client:
+        _set_discovery_progress(
+            user_key,
+            stage="searching",
+            active=True,
+            processed=0,
+            total=1,
+            found=0,
+            source_counts={"core-pr": 0, "openalex": 0, "arxiv": 0},
+            message="Expanding query with AI...",
+            query=query_text,
+        )
         expanded_terms = _expand_query_with_ai(query_text, client, deployment)
 
     seeds = [query_text] + expanded_terms
+    total_fetches = len(seeds) * 3  # 3 sources per seed
+    _fetch_counter = [0]  # mutable counter for closure
+
+    _set_discovery_progress(
+        user_key,
+        stage="searching",
+        active=True,
+        processed=0,
+        total=total_fetches,
+        found=0,
+        source_counts={"core-pr": 0, "openalex": 0, "arxiv": 0},
+        message=f"Fetching from 3 sources \u00d7 {len(seeds)} search terms (0/{total_fetches})...",
+        query=query_text,
+    )
 
     try:
         with _index_lock:
             def _source_progress_update(source_counts):
+                _fetch_counter[0] += 1
+                done = _fetch_counter[0]
                 _set_discovery_progress(
                     user_key,
                     stage="searching",
-                    active=False,
-                    processed=0,
-                    total=0,
+                    active=True,
+                    processed=done,
+                    total=total_fetches,
                     found=int(sum(source_counts.values())),
                     source_counts=source_counts,
-                    message="Searching sources...",
+                    message=f"Fetching from sources ({done}/{total_fetches})... {sum(source_counts.values())} papers found so far",
                     query=query_text,
                 )
 
@@ -2774,7 +2801,7 @@ def api_discover_rank():
 
     team_label = _RANKING_TEAMS.get(team_id, team_id)
     query_text = (payload.get("query") or "").strip()
-    year_from = _parse_year_param(payload.get("year_from", 2020), 2020)
+    year_from = _parse_year_param(payload.get("year_from", 2025), 2025)
     year_to = _parse_year_param(payload.get("year_to", 2026), 2026)
     if year_from > year_to:
         year_from, year_to = year_to, year_from
