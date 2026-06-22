@@ -42,15 +42,37 @@
         <!-- ═══ Section 1: Search for Technical Papers ═══ -->
         <h3 class="discovery-section-heading">1. Search for Technical Papers</h3>
 
+        <!-- Search Mode Toggle -->
+        <div class="search-mode-toggle-wrap">
+          <span id="modeAiLabel" class="search-mode-label search-mode-label--active">AI Expand</span>
+          <label class="search-mode-switch">
+            <input type="checkbox" id="searchModeToggle" />
+            <span class="search-mode-slider"></span>
+          </label>
+          <span id="modeKeywordLabel" class="search-mode-label">Keyword Combo</span>
+          <p class="search-mode-hint">AI assist will provide a broader search of papers. The key word search will provide a more precise search against the primary key words.</p>
+        </div>
+
         <div class="discovery-search-bar">
           <input id="discoverySearchInput" class="search-input-full" type="search"
                  placeholder="Search for AI papers&hellip; e.g. &ldquo;MoE routing efficiency&rdquo;"
                  aria-label="AI paper search query" autocomplete="off" />
           <div class="find-btn-wrap">
             <button id="findNewPapersBtn" class="nav-btn discovery-btn" type="button">Search Sources</button>
+            <button id="cancelSearchBtn" class="nav-btn cancel-btn" type="button" style="display:none;">Cancel</button>
             <span class="find-btn-tip" role="tooltip">Searches CORE Paper Repository, OpenAlex, and arXiv and immediately shows unranked source-tagged results.</span>
           </div>
         </div>
+
+        <!-- Supplemental keywords input (Keyword Combo mode only) -->
+        <div id="supplementalWrap" class="discovery-search-bar supplemental-bar" style="display:none;">
+          <input id="discoverySupplementalInput" class="search-input-full" type="text"
+                 placeholder="Supplemental terms (comma-separated)&hellip; e.g. MoE, Sparse-Attention"
+                 aria-label="Supplemental search keywords" autocomplete="off" />
+        </div>
+
+        <!-- Live query preview (Keyword Combo mode only) -->
+        <div id="queryPreview" class="query-preview" style="display:none;"></div>
 
         <div class="discovery-topics" aria-label="Quick topic shortcuts">
           <!-- OIE (Blue) -->
@@ -60,8 +82,8 @@
           <button class="topic-pill" type="button" data-query="large language model training distributed pretraining scaling laws" data-team-group="oie">LLM Training</button>
           <button class="topic-pill" type="button" data-query="distributed weight data parallelism DWDP tensor model pipeline parallelism LLM training" data-team-group="oie">Distributed Weight Data Parallelism</button>
           <button class="topic-pill" type="button" data-query="collectives acceleration all-reduce all-gather scatter reduce AI distributed training hardware" data-team-group="oie">Collectives Acceleration</button>
+          <button class="topic-pill" type="button" data-query="GPU scaling performance multi-GPU parallel throughput" data-team-group="oie">GPU Scaling Performance</button>
           <!-- E2O (Purple) -->
-          <button class="topic-pill" type="button" data-query="quantization compression pruning efficient LLM deployment" data-team-group="e2o">Quantization &amp; Compression</button>
           <button class="topic-pill" type="button" data-query="datacenter interconnect NVLink networking optical AI cluster" data-team-group="e2o">Interconnects &amp; Networking</button>
           <button class="topic-pill" type="button" data-query="collectives offload network offload RDMA SmartNIC DPU hardware acceleration" data-team-group="e2o">Collectives Offload</button>
           <button class="topic-pill" type="button" data-query="NVLink NVSwitch GPU interconnect high bandwidth multi-GPU communication" data-team-group="e2o">NVLink</button>
@@ -72,6 +94,7 @@
           <button class="topic-pill" type="button" data-query="DDIO Data Direct IO cache injection PCIe DMA network" data-team-group="hickory_delta">DDIO</button>
           <button class="topic-pill" type="button" data-query="cache optimization techniques last level cache prefetching cache partitioning CPU memory hierarchy" data-team-group="hickory_delta">Cache Optimization Techniques</button>
           <button class="topic-pill" type="button" data-query="HPC reliability fault tolerance resilient computing error correction high performance computing" data-team-group="hickory_delta">HPC Reliability</button>
+          <button class="topic-pill" type="button" data-query="PCIe data movement DMA transfer bandwidth host device memory" data-team-group="hickory_delta">PCIe Data Movement</button>
         </div>
 
         <!-- Year range slider -->
@@ -104,6 +127,12 @@
 
         <!-- ═══ Section 3: Score & Rank Using LLM ═══ -->
         <h3 class="discovery-section-heading">3. Score &amp; Rank Technical Papers Using an LLM</h3>
+        <p class="ranking-phases-description">
+          Ranking uses a 3-pass approach:
+          <strong>Pass 1 — Relevance:</strong> If more than 10 papers are found, the AI reads each abstract and filters out papers not relevant to your query.
+          <strong>Pass 2 — Initial Ranking:</strong> If more than 10 papers remain, each is scored against your team's criteria using its abstract to produce a preliminary ranking.
+          <strong>Pass 3 — Deep Analysis:</strong> The top 10 papers from Pass 2 have their full PDF downloaded and analyzed against all criteria in a single pass for final scoring.
+        </p>
 
         <p id="discoveryQuery" class="discovery-copy"></p>
         <p id="discoveryExpandedTerms" class="discovery-copy discovery-expanded-terms" hidden></p>
@@ -287,6 +316,41 @@
       <div class="clipboard-footer">
         <button id="clipboardDownloadBtn" class="nav-btn" type="button" disabled>Download All PDFs</button>
         <button id="clipboardReportBtn" class="nav-btn" type="button" disabled>Generate Report</button>
+      </div>
+    </div>
+
+    <!-- ── Library Clipboard Panel ──────────────────────────────────── -->
+    <div id="libClipboardPanel" class="clipboard-panel" aria-hidden="true">
+      <div class="clipboard-header clipboard-drag-handle">
+        <span class="clipboard-title">&#128203; Library Clipboard (<span id="libClipboardCount">0</span>)</span>
+        <button id="libClipboardCloseBtn" class="clipboard-close-btn" type="button" aria-label="Close clipboard">&#x2715;</button>
+      </div>
+      <p id="libClipboardEmptyMsg" class="clipboard-empty-msg">No papers added yet. Use the &#9734; button on library search cards.</p>
+      <ul id="libClipboardList" class="clipboard-list" aria-label="Library clipboard papers"></ul>
+      <div class="clipboard-footer">
+        <button id="libClipboardDownloadBtn" class="nav-btn" type="button" disabled>Download PDFs</button>
+        <button id="libClipboardReportBtn" class="nav-btn" type="button" disabled>Generate Report</button>
+      </div>
+    </div>
+
+    <!-- ── Library Report Modal ─────────────────────────────────────── -->
+    <div id="libReportModal" class="report-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="libReportModalTitle">
+      <div class="report-modal-dialog">
+        <div class="report-modal-header">
+          <h3 id="libReportModalTitle">Library Paper Report</h3>
+          <button id="libReportModalCloseBtn" class="clipboard-close-btn" type="button" aria-label="Close report">&#x2715;</button>
+        </div>
+        <p class="report-modal-copy">Select a report type, then click Generate. The report is based on each paper's title, abstract, and key metrics.</p>
+        <div class="report-mode-row" role="group" aria-label="Report type">
+          <label class="report-mode-label"><input type="radio" name="libReportMode" value="summary" checked /> Individual Summaries</label>
+          <label class="report-mode-label"><input type="radio" name="libReportMode" value="synthesis" /> Synthesis</label>
+          <label class="report-mode-label"><input type="radio" name="libReportMode" value="comparison" /> Comparison</label>
+        </div>
+        <div class="report-modal-actions">
+          <button id="libGenerateReportBtn" class="nav-btn" type="button">Generate Report</button>
+          <button id="libCopyReportBtn" class="ghost-link" type="button" disabled>Copy Report</button>
+        </div>
+        <div id="libReportOutput" class="report-output" aria-live="polite"></div>
       </div>
     </div>
 

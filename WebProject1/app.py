@@ -58,6 +58,7 @@ import json
 import time
 import datetime
 import threading
+import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import base64
 import tempfile
@@ -675,6 +676,55 @@ def _download_pdf_to_temp(pdf_url):
             return tmp.name, ""
     except Exception as e:
         return None, f"PDF download failed: {e}"
+
+
+# ── PDF text extraction with in-memory cache ────────────────────────────────
+_pdf_text_cache = {}  # pdf_url -> (text, error)
+_pdf_text_cache_lock = threading.Lock()
+
+
+def _extract_pdf_text(pdf_url, max_chars=30000):
+    """Download a PDF and extract its text content, capped at max_chars.
+
+    Uses an in-memory cache keyed by pdf_url to avoid redundant downloads
+    within the same server session (e.g. scoring across multiple criteria).
+    Returns (text, error_msg). On failure text is empty string.
+    """
+    if not pdf_url:
+        return "", "No PDF URL provided"
+
+    with _pdf_text_cache_lock:
+        if pdf_url in _pdf_text_cache:
+            return _pdf_text_cache[pdf_url]
+
+    tmp_path, download_error = _download_pdf_to_temp(pdf_url)
+    if not tmp_path:
+        result = ("", download_error)
+        with _pdf_text_cache_lock:
+            _pdf_text_cache[pdf_url] = result
+        return result
+
+    try:
+        doc = fitz.open(tmp_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+            if len(text) >= max_chars:
+                break
+        doc.close()
+        text = text[:max_chars]
+        result = (text, "")
+    except Exception as e:
+        result = ("", f"PDF text extraction failed: {e}")
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    with _pdf_text_cache_lock:
+        _pdf_text_cache[pdf_url] = result
+    return result
 
 
 def _extract_page_image_from_url(pdf_url, page_num=0, base_bbox=None, dpi=220):
@@ -1483,7 +1533,7 @@ def _paper_to_external_record(*, source, title, authors, year, preview, summary,
         "link": link or pdf_url or "",
         "pdf_url": pdf_url or "",
         "citation_count": int(citation_count or 0),
-        "verified_by_ai": True,
+        "verified_by_ai": False,
         "indexed_query": indexed_query,
         "_pubDate": f"{safe_year}-01-01",
         "isDiscovery": True,
@@ -1543,13 +1593,56 @@ def _token_overlap_stats(required_tokens, search_corpus):
     }
 
 
-def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
+def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=50):
+    """Fetch papers from CORE API with field-specific search, year/type filters, and multiple variants."""
     results = []
     required_tokens = _query_keyword_tokens(query_text)
-    search_variants = _dedupe_strings([
-        _query_keyword_text(query_text),
-        (query_text or "").strip(),
-    ])
+    query_stripped = (query_text or "").strip()
+
+    # Document type restriction (research papers only)
+    doc_type_filter = '(documentType:"research article" OR documentType:"research" OR documentType:"journal article" OR documentType:"conference paper" OR documentType:"preprint")'
+    # Year filter server-side
+    year_filter = f"yearPublished>={year_from} AND yearPublished<={year_to}"
+    # Require downloadable full text
+    fulltext_filter = "_exists_:downloadUrl"
+
+    # Base filter appended to all queries
+    base_filter = f" AND {year_filter} AND {doc_type_filter} AND {fulltext_filter}"
+
+    # Build search variants with different strategies
+    raw_variants = []  # list of (label, query_text, sort)
+
+    # Variant 1: Title phrase search (most precise)
+    if query_stripped:
+        raw_variants.append(("title_phrase", f'title:"{query_stripped}"', "relevance"))
+
+    # Variant 2: Title keyword search (individual tokens in title)
+    if len(required_tokens) >= 2:
+        title_tokens = " AND ".join(f"title:{t}" for t in required_tokens[:5])
+        raw_variants.append(("title_tokens", title_tokens, "relevance"))
+
+    # Variant 3: Abstract phrase search
+    if query_stripped:
+        raw_variants.append(("abstract_phrase", f'abstract:"{query_stripped}"', "recency"))
+
+    # Variant 4: Free text search (all fields) — sorted by recency
+    if query_stripped:
+        raw_variants.append(("freetext_recency", query_stripped, "recency"))
+
+    # Variant 5: Free text search — sorted by relevance
+    keyword_text = _query_keyword_text(query_text)
+    if keyword_text and keyword_text != query_stripped:
+        raw_variants.append(("freetext_relevance", keyword_text, "relevance"))
+
+    # Deduplicate by query string
+    seen_queries = set()
+    search_variants = []
+    for label, q, sort_key in raw_variants:
+        if not q or q in seen_queries:
+            continue
+        seen_queries.add(q)
+        search_variants.append((label, q + base_filter, sort_key))
+
     print(
         f"[Index] [CORE] Starting: query='{query_text}', year=[{year_from},{year_to}], "
         f"variants={len(search_variants)}, mode={_CORE_TOKEN_FILTER_MODE}, required_tokens={required_tokens}"
@@ -1561,11 +1654,8 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
     any_variant_ok = False
     last_error_code = None
 
-    for variant_idx, search_text in enumerate(search_variants, 1):
-        if not search_text:
-            continue
-
-        print(f"[Index] [CORE] Variant {variant_idx}: '{search_text}'")
+    for variant_idx, (label, search_text, sort_key) in enumerate(search_variants, 1):
+        print(f"[Index] [CORE] Variant {variant_idx} ({label}, sort={sort_key}): '{search_text[:120]}...'")
         try:
             r = http_requests.get(
                 "https://api.core.ac.uk/v3/search/works",
@@ -1573,6 +1663,7 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
                     "q": search_text,
                     "limit": limit,
                     "offset": 0,
+                    "sort": sort_key,
                 },
                 timeout=15,
                 proxies=_proxies,
@@ -1601,6 +1692,7 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
                 continue
 
             year = int(entry.get("yearPublished") or datetime.datetime.now().year)
+            # Safety net: still filter by year in case API filter is approximate
             if year < year_from or year > year_to:
                 year_dropped += 1
                 continue
@@ -1680,31 +1772,75 @@ def _fetch_core_pr_candidates(query_text, year_from, year_to, limit=10):
     return results, error
 
 
-def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
+def _fetch_openalex_candidates(query_text, year_from, year_to, limit=50):
+    """Fetch papers from OpenAlex API with Boolean search, topic filtering, and multiple sort strategies."""
     try:
-        oa_filter = f"publication_date:>{year_from-1}-12-31,publication_date:<{year_to+1}-01-01"
+        # Filters: date range + article/preprint type + has abstract
+        oa_filter = (
+            f"publication_date:>{year_from-1}-12-31,"
+            f"publication_date:<{year_to+1}-01-01,"
+            f"type:article|preprint,"
+            f"has_abstract:true"
+        )
         results = []
-        search_variants = _dedupe_strings([
-            _query_keyword_text(query_text),
-            (query_text or "").strip(),
-        ])
+        query_stripped = (query_text or "").strip()
+        tokens = _query_keyword_tokens(query_text)
+
+        # Build multiple search variants with different strategies
+        search_variants = []  # list of (label, search_text, sort_key)
+
+        # Variant 1: Exact phrase search (unstemmed) — best for model names like "DeepSeek V3"
+        if query_stripped and " " in query_stripped:
+            search_variants.append(("phrase_exact", f'"{query_stripped}"', "relevance_score:desc"))
+
+        # Variant 2: Boolean AND of all tokens — sorted by relevance
+        if len(tokens) >= 2:
+            and_query = " AND ".join(tokens[:6])
+            search_variants.append(("bool_and_relevance", and_query, "relevance_score:desc"))
+
+        # Variant 3: Full query text — sorted by publication date (most recent)
+        if query_stripped:
+            search_variants.append(("full_text_date", query_stripped, "publication_date:desc"))
+
+        # Variant 4: Full query text — sorted by citation count (most influential)
+        if query_stripped:
+            search_variants.append(("full_text_cited", query_stripped, "cited_by_count:desc"))
+
+        # Variant 5: Boolean OR for broader recall — sorted by relevance
+        if len(tokens) >= 2:
+            or_query = " OR ".join(tokens[:5])
+            search_variants.append(("bool_or_relevance", or_query, "relevance_score:desc"))
+
+        # Deduplicate by (search_text, sort) pair
+        seen = set()
+        deduped_variants = []
+        for label, search_text, sort_key in search_variants:
+            key = (search_text, sort_key)
+            if key in seen or not search_text:
+                continue
+            seen.add(key)
+            deduped_variants.append((label, search_text, sort_key))
+
         any_variant_ok = False
         last_error_code = None
-        print(f"[Index] [OA] Starting: query='{query_text}', year=[{year_from},{year_to}], variants={len(search_variants)}")
+        print(f"[Index] [OA] Starting: query='{query_text}', year=[{year_from},{year_to}], variants={len(deduped_variants)}")
 
-        for variant_idx, search_text in enumerate(search_variants, 1):
-            if not search_text:
+        for variant_idx, (label, search_text, sort_key) in enumerate(deduped_variants, 1):
+            print(f"[Index] [OA] Variant {variant_idx} ({label}, sort={sort_key}): '{search_text[:100]}'")
+
+            try:
+                r = http_requests.get(
+                    "https://api.openalex.org/works",
+                    params={"search": search_text, "sort": sort_key,
+                            "filter": oa_filter, "per_page": str(limit)},
+                    headers={"Accept": "application/json"},
+                    timeout=15,
+                    proxies=_proxies,
+                )
+            except Exception as variant_err:
+                print(f"[Index] [OA] Variant {variant_idx} request failed: {variant_err}")
                 continue
-            print(f"[Index] [OA] Variant {variant_idx}: '{search_text}'")
 
-            r = http_requests.get(
-                "https://api.openalex.org/works",
-                params={"search": search_text, "sort": "publication_date:desc",
-                        "filter": oa_filter, "per-page": str(limit)},
-                headers={"Accept": "application/json"},
-                timeout=15,
-                proxies=_proxies,
-            )
             if not r.ok:
                 print(f"[Index] [OA] Variant {variant_idx} HTTP {r.status_code}: {r.reason}")
                 last_error_code = r.status_code
@@ -1747,7 +1883,7 @@ def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
                 variant_passed += 1
             print(f"[Index] [OA] Variant {variant_idx}: {len(raw_data)} raw → {year_dropped} year-filtered → {variant_passed} passed")
         print(f"[Index] [OA] Complete: {len(results)} total papers from all variants")
-        if not any_variant_ok and search_variants:
+        if not any_variant_ok and deduped_variants:
             if last_error_code == 429:
                 error = "Rate limited"
             elif last_error_code:
@@ -1762,24 +1898,64 @@ def _fetch_openalex_candidates(query_text, year_from, year_to, limit=10):
         return [], "Unreachable"
 
 
-def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
+def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=30):
+    """Fetch papers from arXiv API with field-specific search, date filter, and category restriction."""
     try:
         ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
         results = []
         tokens = _query_keyword_tokens(query_text)
-        query_variants = _dedupe_strings([
-            " AND ".join(f"all:{token}" for token in tokens[:4]) if len(tokens) >= 2 else "",
-            f'all:"{query_text.strip()}"' if (query_text or "").strip() else "",
-            " OR ".join(f"all:{token}" for token in tokens[:4]) if len(tokens) >= 2 else "",
-        ])
+        query_stripped = (query_text or "").strip()
+
+        # Server-side date filter
+        date_filter = f"submittedDate:[{year_from}01010000+TO+{year_to}12312359]"
+
+        # Category restriction: CS/AI/ML-relevant categories + stat.ML
+        cat_filter = (
+            "%28cat:cs.LG+OR+cat:cs.AI+OR+cat:cs.CL+OR+cat:cs.DC"
+            "+OR+cat:cs.AR+OR+cat:cs.NI+OR+cat:cs.PF+OR+cat:stat.ML%29"
+        )
+
+        # Build query variants with targeted field searches
+        raw_variants = []
+
+        # Variant 1: Title phrase search (most precise)
+        if query_stripped:
+            raw_variants.append(("ti_phrase", f'ti:"{query_stripped}"', "relevance"))
+
+        # Variant 2: Title + abstract tokens with AND (high precision)
+        if len(tokens) >= 2:
+            token_query = " AND ".join(f"ti:{t}" for t in tokens[:5])
+            raw_variants.append(("ti_and", token_query, "submittedDate"))
+
+        # Variant 3: All-fields phrase search (broader)
+        if query_stripped:
+            raw_variants.append(("all_phrase", f'all:"{query_stripped}"', "submittedDate"))
+
+        # Variant 4: All-fields AND tokens (broadest AND)
+        if len(tokens) >= 2:
+            raw_variants.append(("all_and", " AND ".join(f"all:{t}" for t in tokens[:5]), "submittedDate"))
+
+        # Variant 5: Abstract OR tokens (catch-all, sorted by relevance)
+        if len(tokens) >= 2:
+            raw_variants.append(("abs_or", " OR ".join(f"abs:{t}" for t in tokens[:5]), "relevance"))
+
+        # Deduplicate by query string
+        seen_queries = set()
+        query_variants = []
+        for label, q, sort_by in raw_variants:
+            if not q or q in seen_queries:
+                continue
+            seen_queries.add(q)
+            # Append date and category filters
+            full_query = f"{q}+AND+{date_filter}+AND+{cat_filter}"
+            query_variants.append((label, full_query, sort_by))
+
         any_variant_ok = False
         last_error_code = None
         print(f"[Index] [arXiv] Starting: query='{query_text}', tokens={tokens}, year=[{year_from},{year_to}], variants={len(query_variants)}")
 
-        for variant_idx, search_query in enumerate(query_variants, 1):
-            if not search_query:
-                continue
-            print(f"[Index] [arXiv] Variant {variant_idx}: '{search_query}'")
+        for variant_idx, (label, search_query, sort_by) in enumerate(query_variants, 1):
+            print(f"[Index] [arXiv] Variant {variant_idx} ({label}, sort={sort_by}): '{search_query[:120]}...'")
 
             try:
                 r = http_requests.get(
@@ -1788,7 +1964,7 @@ def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
                         "search_query": search_query,
                         "start": 0,
                         "max_results": limit,
-                        "sortBy": "submittedDate",
+                        "sortBy": sort_by,
                         "sortOrder": "descending",
                     },
                     timeout=20,
@@ -1816,6 +1992,7 @@ def _fetch_arxiv_candidates(query_text, year_from, year_to, limit=10):
                     continue
                 published = entry.findtext("atom:published", default="", namespaces=ns)
                 year = int(published[:4]) if published else datetime.datetime.now().year
+                # Safety net: still filter by year in case API date filter is approximate
                 if year < year_from or year > year_to:
                     year_dropped += 1
                     continue
@@ -1905,6 +2082,20 @@ def _build_score_sequence(active_keys, score_breakdown):
     return seq
 
 
+def _build_keyword_seeds(primary, supplemental_csv):
+    """Build search seeds from primary keyword + comma-separated supplemental terms.
+
+    Returns: [primary, primary+supp1, primary+supp2, ...]
+    Always includes the primary keyword alone as the first seed.
+    """
+    seeds = [primary]
+    if supplemental_csv:
+        terms = [t.strip() for t in supplemental_csv.split(",") if t.strip()]
+        for term in terms:
+            seeds.append(f"{primary} {term}")
+    return seeds
+
+
 def _expand_query_with_ai(query_text, client, deployment):
     """Use the LLM to generate 4-6 alternative search terms for `query_text`.
 
@@ -1940,7 +2131,7 @@ def _expand_query_with_ai(query_text, client, deployment):
         return []
 
 
-_PREFILTER_THRESHOLD = 20  # min candidates before pre-filter is applied
+_PREFILTER_THRESHOLD = 10  # min candidates before pre-filter (Pass 1) is applied
 _PREFILTER_BATCH_SIZE = 3   # papers per relevance-check batch
 _PREFILTER_MAX_WORKERS = 10  # parallel LLM calls during batch pre-filter
 
@@ -1995,18 +2186,15 @@ def _prefilter_candidates_with_ai(query_text, candidates, client, deployment, te
         for i, c in enumerate(batch, 1):
             cid = c.get("id") or c.get("rid") or ""
             title = (c.get("title") or "")[:120]
-            lines.append(f"{i}. [{cid}] {title}")
+            abstract = (c.get("summary") or c.get("preview") or "")[:300]
+            lines.append(f"{i}. [{cid}] {title}\n   Abstract: {abstract}")
         papers_block = "\n".join(lines)
-
-        team_focus = _PREFILTER_TEAM_FOCUS.get(team_id or "", "")
-        focus_line = f"Team focus: {team_focus}\n\n" if team_focus else ""
 
         prompt = (
             f"Query: {query_text}\n\n"
-            f"{focus_line}"
             f"Papers:\n{papers_block}\n\n"
-            f"Which of these papers are directly relevant to both the query AND the team focus? "
-            f"A paper is relevant if it directly addresses the query topic in a way useful to the team. "
+            f"Which of these papers are relevant to the search query? "
+            f"A paper is relevant if its title or abstract indicates it addresses the query topic. "
             f"Return ONLY valid JSON: {{\"relevant_ids\": [\"id1\", ...]}} "
             f"using the exact IDs shown in brackets. "
             f"If none are relevant, return {{\"relevant_ids\": []}}"
@@ -2066,6 +2254,177 @@ def _prefilter_candidates_with_ai(query_text, candidates, client, deployment, te
     return selected, excluded, error_message
 
 
+_INITIAL_RANK_THRESHOLD = 10  # if more than this many pass relevance, do abstract ranking first
+
+
+def _rank_candidates_abstract(query_text, candidates, progress_callback=None, team_id="oie", ranking_run_id=None):
+    """Pass 2: Rank candidates using abstract + ranking questions (no PDF download)."""
+    cfg = _get_session_ranking_config(team_id)
+    active_keys = cfg["keys"]
+    active_weights = cfg["weights"]
+    active_questions = cfg["questions"]
+    ranking_run_id = str(ranking_run_id or time.time_ns())
+
+    client = _get_azure_client()
+    total_scored = len(candidates)
+
+    if client is None or not candidates:
+        ranked = []
+        for c in candidates:
+            copy = dict(c)
+            copy["score_error"] = "AI endpoint unavailable"
+            copy["total_score"] = None
+            ranked.append(copy)
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return ranked
+
+    deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
+
+    # Build abstract-only payloads
+    payload = [
+        {
+            "title": c.get("title", ""),
+            "year": c.get("year", 0),
+            "source": c.get("source", ""),
+            "has_pdf": bool(c.get("pdf_url") or c.get("link")),
+            "summary": (c.get("summary") or c.get("preview") or "")[:300],
+            "datacenter": (c.get("datacenter") or "")[:200],
+        }
+        for c in candidates
+    ]
+    payload_ids = [c["id"] for c in candidates]
+
+    weighted_criteria = []
+    for key in active_keys:
+        try:
+            weight = float(active_weights.get(key, 0.0))
+        except (TypeError, ValueError):
+            weight = 0.0
+        if weight > 0.0:
+            weighted_criteria.append({
+                "key": key,
+                "weight": weight,
+                "question": active_questions.get(key, key),
+            })
+
+    if not weighted_criteria:
+        print("  [Rank-Abstract] All criteria weights are zero; skipping.")
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return list(candidates)
+
+    try:
+        print(
+            "  [Rank-Abstract] Starting abstract scoring: "
+            f"query='{_safe_json_snippet(query_text, 120)}', "
+            f"candidates={len(payload)}, weighted_criteria={len(weighted_criteria)}"
+        )
+        by_id = {c["id"]: c for c in candidates}
+        score_by_id = {cid: {k: None for k in active_keys} for cid in by_id.keys()}
+        criterion_success = {item["key"]: False for item in weighted_criteria}
+        processed_papers = 0
+        for idx, paper_payload in enumerate(payload):
+            rid = payload_ids[idx]
+            for criterion in weighted_criteria:
+                key = criterion["key"]
+                question = criterion["question"]
+                weight = criterion["weight"]
+
+                prompt_payload = {
+                    "ranking_run_id": ranking_run_id,
+                    "query": query_text,
+                    "criterion": {
+                        "key": key,
+                        "question": question,
+                        "weight": weight,
+                        "scale": "0-5",
+                    },
+                    "output_contract": {
+                        "format": "json_object",
+                        "key": "score",
+                        "score_type": "number",
+                        "score_range": [0, 5],
+                    },
+                    "paper": paper_payload,
+                }
+
+                try:
+                    completion = client.chat.completions.create(
+                        model=deployment,
+                        messages=[
+                            {"role": "system", "content": (
+                                "You score one paper for one criterion based on its abstract and metadata. "
+                                "Return ONLY JSON with exactly one key: {\"score\": <number from 0 to 5>}. "
+                                "No markdown, no prose, no extra keys."
+                            )},
+                            {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
+                        ],
+                        max_tokens=40,
+                        temperature=0.0,
+                        extra_headers={
+                            "Cache-Control": "no-cache, no-store",
+                            "Pragma": "no-cache",
+                            "x-ms-client-request-id": str(uuid.uuid4()),
+                        },
+                        response_format={"type": "json_object"},
+                    )
+                    raw_content = (completion.choices[0].message.content or "").strip()
+                    data = json.loads(_extract_json_object_text(raw_content))
+                    num = max(0.0, min(5.0, float((data or {}).get("score", 0.0))))
+                    score_by_id[rid][key] = num
+                    criterion_success[key] = True
+                except Exception as paper_error:
+                    score_by_id[rid][key] = None
+                    print(f"  [Rank-Abstract] scoring failed: key='{key}', paper_idx={idx}, error={paper_error}")
+
+            processed_papers += 1
+            if progress_callback:
+                progress_callback(processed_papers, len(payload), "ranking")
+
+        annotated = []
+        for cid, cand in by_id.items():
+            normalized = score_by_id[cid]
+            scored_keys = [k for k in active_keys if normalized.get(k) is not None]
+            failed_keys = [k for k in active_keys if normalized.get(k) is None]
+
+            copy = dict(cand)
+            if failed_keys and not scored_keys:
+                copy["score_error"] = f"AI scoring failed for: {', '.join(failed_keys)}"
+                copy["total_score"] = 0
+                copy["score_breakdown"] = {k: v for k, v in normalized.items() if v is not None}
+            else:
+                total_score = sum(
+                    normalized[k] * float(active_weights.get(k, 0.0) or 0.0)
+                    for k in scored_keys
+                )
+                copy["total_score"] = round(total_score, 4)
+                copy["score_breakdown"] = {k: v for k, v in normalized.items() if v is not None}
+                if failed_keys:
+                    copy["score_error"] = f"Partial scoring — failed criteria: {', '.join(failed_keys)}"
+            annotated.append(copy)
+
+        ranked = sorted(
+            annotated,
+            key=lambda c: (c.get("total_score") or 0, c.get("citation_count") or 0, c.get("year") or 0),
+            reverse=True,
+        )
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return ranked
+    except Exception as e:
+        print(f"  [Rank-Abstract] failed: {e}")
+        ranked = []
+        for c in candidates:
+            copy = dict(c)
+            copy["score_error"] = f"AI abstract ranking failed: {e}"
+            copy["total_score"] = None
+            ranked.append(copy)
+        if progress_callback:
+            progress_callback(total_scored, total_scored, "completed")
+        return ranked
+
+
 def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, team_id="oie", ranking_run_id=None):
     cfg = _get_session_ranking_config(team_id)
     active_keys = cfg["keys"]
@@ -2088,17 +2447,54 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
         return ranked
 
     deployment = (_azure_cfg or {}).get("deployment", "gpt-4o")
-    payload = [
-        {
-            "title": c.get("title", ""),
-            "year": c.get("year", 0),
-            "source": c.get("source", ""),
-            "has_pdf": bool(c.get("pdf_url") or c.get("link")),
-            "summary": (c.get("summary") or c.get("preview") or "")[:110],
-            "datacenter": (c.get("datacenter") or "")[:80],
-        }
-        for c in candidates
-    ]
+
+    # ── Pass 2: Download PDFs in parallel for deep analysis ─────────────────
+    if progress_callback:
+        progress_callback(0, total_scored, "downloading")
+
+    print(f"  [Rank] Pass 2: Downloading {len(candidates)} PDFs for deep analysis...")
+    pdf_texts_by_id = {}  # candidate id -> extracted text (may be empty on failure)
+
+    def _fetch_pdf_text(cand):
+        cid = cand.get("id", "")
+        pdf_url = cand.get("pdf_url") or ""
+        if not pdf_url:
+            return cid, ""
+        text, err = _extract_pdf_text(pdf_url)
+        if err:
+            print(f"  [Rank] PDF extraction warning for '{cand.get('title', '')[:50]}': {err}")
+        return cid, text
+
+    with ThreadPoolExecutor(max_workers=_PREFILTER_MAX_WORKERS) as executor:
+        futures = {executor.submit(_fetch_pdf_text, c): c for c in candidates}
+        for future in as_completed(futures):
+            cid, text = future.result()
+            pdf_texts_by_id[cid] = text
+
+    print(f"  [Rank] PDF download complete: {sum(1 for t in pdf_texts_by_id.values() if t)} of {len(candidates)} extracted successfully")
+
+    # Build per-paper payloads using full PDF text (fallback to summary+datacenter)
+    payload = []
+    for c in candidates:
+        cid = c.get("id", "")
+        full_text = pdf_texts_by_id.get(cid, "")
+        if full_text:
+            payload.append({
+                "title": c.get("title", ""),
+                "year": c.get("year", 0),
+                "source": c.get("source", ""),
+                "full_text": full_text,
+            })
+        else:
+            # Fallback: no PDF available, use summary fields
+            payload.append({
+                "title": c.get("title", ""),
+                "year": c.get("year", 0),
+                "source": c.get("source", ""),
+                "has_pdf": False,
+                "summary": (c.get("summary") or c.get("preview") or "")[:110],
+                "datacenter": (c.get("datacenter") or "")[:80],
+            })
     payload_ids = [c["id"] for c in candidates]
 
     weighted_criteria = []
@@ -2122,59 +2518,82 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
 
     try:
         print(
-            "  [Rank] Starting per-criterion scoring: "
+            "  [Rank] Starting all-criteria scoring (1 call per paper): "
             f"query='{_safe_json_snippet(query_text, 120)}', "
             f"candidates={len(payload)}, weighted_criteria={len(weighted_criteria)}"
         )
         by_id = {c["id"]: c for c in candidates}
         score_by_id = {cid: {k: None for k in active_keys} for cid in by_id.keys()}
-        rationale_parts_by_id = {cid: [] for cid in by_id.keys()}
-        criterion_success = {item["key"]: False for item in weighted_criteria}
         processed_papers = 0
+
+        # Build criteria list for the prompt
+        criteria_for_prompt = [
+            {"key": item["key"], "question": item["question"], "weight": item["weight"], "scale": "0-5"}
+            for item in weighted_criteria
+        ]
+
         for idx, paper_payload in enumerate(payload):
             rid = payload_ids[idx]
-            for criterion in weighted_criteria:
-                key = criterion["key"]
-                question = criterion["question"]
-                weight = criterion["weight"]
 
-                print(
-                    "  [Rank] Criterion request: "
-                    f"key='{key}', weight={round(weight, 4)}, "
-                    f"question_len={len(str(question or ''))}, paper_idx={idx}"
+            prompt_payload = {
+                "ranking_run_id": ranking_run_id,
+                "query": query_text,
+                "criteria": criteria_for_prompt,
+                "output_contract": {
+                    "format": "json_object",
+                    "keys": [item["key"] for item in weighted_criteria],
+                    "score_type": "number",
+                    "score_range": [0, 5],
+                },
+                "paper": paper_payload,
+            }
+
+            try:
+                started = time.time()
+                completion = client.chat.completions.create(
+                    model=deployment,
+                    messages=[
+                        {"role": "system", "content": (
+                            "You score one paper on ALL criteria simultaneously. "
+                            "The paper's full text is provided when available — analyze the complete content to determine scores. "
+                            "Return ONLY a JSON object with one key per criterion, each mapping to a score from 0 to 5. "
+                            "Example: {\"criterion_key_1\": 3, \"criterion_key_2\": 4, ...}. "
+                            "No markdown, no prose, no extra keys."
+                        )},
+                        {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
+                    ],
+                    max_tokens=150,
+                    temperature=0.0,
+                    extra_headers={
+                        "Cache-Control": "no-cache, no-store",
+                        "Pragma": "no-cache",
+                        "x-ms-client-request-id": str(uuid.uuid4()),
+                    },
+                    response_format={"type": "json_object"},
                 )
+                elapsed_ms = int((time.time() - started) * 1000)
+                choice = completion.choices[0] if completion and completion.choices else None
+                raw_content = (choice.message.content if choice and choice.message else "") or ""
 
-                prompt_payload = {
-                    "ranking_run_id": ranking_run_id,
-                    "query": query_text,
-                    "criterion": {
-                        "key": key,
-                        "question": question,
-                        "weight": weight,
-                        "scale": "0-5",
-                    },
-                    "output_contract": {
-                        "format": "json_object",
-                        "key": "score",
-                        "score_type": "number",
-                        "score_range": [0, 5],
-                    },
-                    "paper": paper_payload,
-                }
-
+                data = None
                 try:
-                    started = time.time()
-                    completion = client.chat.completions.create(
+                    data = json.loads(_extract_json_object_text(raw_content))
+                except Exception as parse_error:
+                    print(
+                        f"  [Rank] JSON parse error: paper_idx={idx}, error={parse_error}, "
+                        f"snippet='{_safe_json_snippet(raw_content)}'"
+                    )
+                    # Retry once
+                    retry_completion = client.chat.completions.create(
                         model=deployment,
                         messages=[
                             {"role": "system", "content": (
-                                "You score one paper for one criterion. "
-                                "Return ONLY JSON with exactly one key: {\"score\": <number from 0 to 5>}. "
-                                "No markdown, no prose, no extra keys."
+                                "Return strict JSON only. One key per criterion, each value a number 0-5. "
+                                "No extra keys, no prose."
                             )},
                             {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
                         ],
-                        max_tokens=40,
+                        max_tokens=150,
                         temperature=0.0,
                         extra_headers={
                             "Cache-Control": "no-cache, no-store",
@@ -2183,66 +2602,32 @@ def _rank_candidates_with_ai(query_text, candidates, progress_callback=None, tea
                         },
                         response_format={"type": "json_object"},
                     )
-                    elapsed_ms = int((time.time() - started) * 1000)
-                    choice = completion.choices[0] if completion and completion.choices else None
-                    finish_reason = choice.finish_reason if choice else "unknown"
-                    raw_content = (choice.message.content if choice and choice.message else "") or ""
+                    retry_choice = retry_completion.choices[0] if retry_completion and retry_completion.choices else None
+                    retry_raw = (retry_choice.message.content if retry_choice and retry_choice.message else "") or ""
+                    data = json.loads(_extract_json_object_text(retry_raw))
 
-                    data = None
-                    try:
-                        data = json.loads(_extract_json_object_text(raw_content))
-                    except Exception as parse_error:
-                        print(
-                            "  [Rank] JSON parse error (paper first pass): "
-                            f"key='{key}', paper_idx={idx}, error={parse_error}, snippet='{_safe_json_snippet(raw_content)}'"
-                        )
+                # Extract scores for each criterion from the single response
+                if data:
+                    for item in weighted_criteria:
+                        key = item["key"]
+                        raw_score = data.get(key)
+                        if raw_score is not None:
+                            try:
+                                num = max(0.0, min(5.0, float(raw_score)))
+                                score_by_id[rid][key] = num
+                            except (TypeError, ValueError):
+                                score_by_id[rid][key] = None
 
-                        retry_completion = client.chat.completions.create(
-                            model=deployment,
-                            messages=[
-                                {"role": "system", "content": (
-                                    "Return strict JSON only in this exact shape: {\"score\": number}. "
-                                    "Score must be between 0 and 5. No extra keys."
-                                )},
-                                {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
-                            ],
-                            max_tokens=60,
-                            temperature=0.0,
-                            extra_headers={
-                                "Cache-Control": "no-cache, no-store",
-                                "Pragma": "no-cache",
-                                "x-ms-client-request-id": str(uuid.uuid4()),
-                            },
-                            response_format={"type": "json_object"},
-                        )
-                        retry_choice = retry_completion.choices[0] if retry_completion and retry_completion.choices else None
-                        retry_raw = (retry_choice.message.content if retry_choice and retry_choice.message else "") or ""
-                        data = json.loads(_extract_json_object_text(retry_raw))
-
-                    try:
-                        num = float((data or {}).get("score", 0.0))
-                    except (TypeError, ValueError):
-                        num = 0.0
-                    num = max(0.0, min(5.0, num))
-                    score_by_id[rid][key] = num
-                    criterion_success[key] = True
-
-                    print(
-                        "  [Rank] Paper scored: "
-                        f"key='{key}', paper_idx={idx}, finish_reason={finish_reason}, elapsed_ms={elapsed_ms}, score={num}"
-                    )
-                except Exception as paper_error:
-                    score_by_id[rid][key] = None
-                    print(
-                        "  [Index] AI paper scoring failed: "
-                        f"key='{key}', paper_idx={idx}, error={paper_error}"
-                    )
+                print(
+                    f"  [Rank] Paper scored (all criteria): paper_idx={idx}, "
+                    f"elapsed_ms={elapsed_ms}, scores={score_by_id[rid]}"
+                )
+            except Exception as paper_error:
+                print(f"  [Rank] AI paper scoring failed: paper_idx={idx}, error={paper_error}")
 
             processed_papers += 1
             if progress_callback:
                 progress_callback(processed_papers, len(payload), "ranking")
-
-        successful_criteria = sum(1 for item in weighted_criteria if criterion_success.get(item["key"]))
 
         annotated = []
         for cid, cand in by_id.items():
@@ -2625,13 +3010,38 @@ def api_clipboard_report():
     system_prompt = system_prompts.get(mode, system_prompts["summary"])
 
     paper_blocks = []
+    # Download and extract full PDF text for each paper (parallel)
+    pdf_texts = {}
+    def _fetch_report_pdf(paper):
+        pdf_url = (paper.get("pdf_url") or "").strip()
+        if not pdf_url:
+            return paper.get("title", ""), ""
+        # Cap per-paper text lower when many papers to stay within context window
+        per_paper_cap = 20000 if len(papers) > 3 else 30000
+        text, _ = _extract_pdf_text(pdf_url, max_chars=per_paper_cap)
+        return paper.get("title", ""), text
+
+    with ThreadPoolExecutor(max_workers=_PREFILTER_MAX_WORKERS) as executor:
+        futures = [executor.submit(_fetch_report_pdf, p) for p in papers]
+        for future in as_completed(futures):
+            title, text = future.result()
+            pdf_texts[title] = text
+
     for i, p in enumerate(papers, 1):
-        block = f"Paper {i}: {p.get('title', 'Unknown')}\n"
-        if p.get("authors"):    block += f"Authors: {p['authors']}\n"
-        if p.get("year"):       block += f"Year: {p['year']}\n"
-        if p.get("summary"):    block += f"Summary: {p['summary']}\n"
-        if p.get("datacenter"): block += f"Datacenter Relevance: {p['datacenter']}\n"
-        if p.get("metrics"):    block += f"Key Metrics: {p['metrics']}\n"
+        full_text = pdf_texts.get(p.get("title", ""), "")
+        if full_text:
+            block = f"Paper {i}: {p.get('title', 'Unknown')}\n"
+            if p.get("authors"):    block += f"Authors: {p['authors']}\n"
+            if p.get("year"):       block += f"Year: {p['year']}\n"
+            block += f"--- Full Text ---\n{full_text}\n---\n"
+        else:
+            # Fallback: no PDF available, use metadata fields
+            block = f"Paper {i}: {p.get('title', 'Unknown')}\n"
+            if p.get("authors"):    block += f"Authors: {p['authors']}\n"
+            if p.get("year"):       block += f"Year: {p['year']}\n"
+            if p.get("summary"):    block += f"Summary: {p['summary']}\n"
+            if p.get("datacenter"): block += f"Datacenter Relevance: {p['datacenter']}\n"
+            if p.get("metrics"):    block += f"Key Metrics: {p['metrics']}\n"
         paper_blocks.append(block)
     user_content = "Papers:\n\n" + "\n---\n".join(paper_blocks)
 
@@ -2642,7 +3052,7 @@ def api_clipboard_report():
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_content},
             ],
-            max_tokens=1500,
+            max_tokens=3000,
             temperature=0.3,
         )
         report_text = completion.choices[0].message.content or ""
@@ -2696,25 +3106,33 @@ def api_discover_search():
     source_errors = {"core-pr": None, "openalex": None, "arxiv": None}
     expanded_terms = []
 
-    # LLM query expansion — generates synonym/variant search terms
-    cfg = _load_azure_config() or {}
-    deployment = cfg.get("deployment", "gpt-4o")
-    client = _get_azure_client()
-    if client:
-        _set_discovery_progress(
-            user_key,
-            stage="searching",
-            active=True,
-            processed=0,
-            total=1,
-            found=0,
-            source_counts={"core-pr": 0, "openalex": 0, "arxiv": 0},
-            message="Expanding query with AI...",
-            query=query_text,
-        )
-        expanded_terms = _expand_query_with_ai(query_text, client, deployment)
+    # Determine search mode
+    search_mode = request.args.get("mode", "ai").strip().lower()
+    supplemental_csv = request.args.get("supplemental", "").strip()
 
-    seeds = [query_text] + expanded_terms
+    if search_mode == "keyword":
+        # Keyword Combo mode — build seeds from primary + supplemental combinations
+        seeds = _build_keyword_seeds(query_text, supplemental_csv)
+        expanded_terms = seeds[1:]  # everything after the primary alone
+    else:
+        # AI mode — LLM query expansion (existing behavior)
+        cfg = _load_azure_config() or {}
+        deployment = cfg.get("deployment", "gpt-4o")
+        client = _get_azure_client()
+        if client:
+            _set_discovery_progress(
+                user_key,
+                stage="searching",
+                active=True,
+                processed=0,
+                total=1,
+                found=0,
+                source_counts={"core-pr": 0, "openalex": 0, "arxiv": 0},
+                message="Expanding query with AI...",
+                query=query_text,
+            )
+            expanded_terms = _expand_query_with_ai(query_text, client, deployment)
+        seeds = [query_text] + expanded_terms
     total_fetches = len(seeds) * 3  # 3 sources per seed
     _fetch_counter = [0]  # mutable counter for closure
 
@@ -2752,6 +3170,33 @@ def api_discover_search():
         errors.append(f"Index build: {e}")
 
     filtered = _filter_discovery_candidates(indexed, year_from, year_to)
+
+    # In keyword mode, enforce: primary must be in title; supplemental in title/summary
+    if search_mode == "keyword" and query_text and filtered:
+        import re as _re
+        def _normalize_for_match(s):
+            """Lowercase, collapse special chars/spaces to single space for fuzzy substring matching."""
+            return _re.sub(r"[\s\-_./,;:()\\[\\]{}]+", " ", (s or "").lower()).strip()
+
+        primary_norm = _normalize_for_match(query_text)
+        supp_terms = []
+        if supplemental_csv:
+            supp_terms = [_normalize_for_match(t) for t in supplemental_csv.split(",") if t.strip()]
+
+        kept = []
+        for p in filtered:
+            title_norm = _normalize_for_match(p.get("title") or "")
+            # Primary keyword must appear in title (normalized)
+            if primary_norm not in title_norm:
+                continue
+            # If supplemental terms exist, at least one must appear in title or summary
+            if supp_terms:
+                text_norm = title_norm + " " + _normalize_for_match(p.get("summary") or "")
+                if not any(term in text_norm for term in supp_terms):
+                    continue
+            kept.append(p)
+        filtered = kept
+
     source_counts = _count_source_counts(filtered)
 
     if not filtered:
@@ -2777,6 +3222,7 @@ def api_discover_search():
     return jsonify({
         "results": filtered,
         "query": query_text,
+        "mode": search_mode,
         "ai_available": ai_available,
         "applied_year_from": year_from,
         "applied_year_to": year_to,
@@ -2818,7 +3264,7 @@ def api_discover_rank():
     filtered = _filter_discovery_candidates(candidates, year_from, year_to)
     source_counts = _count_source_counts(filtered)
 
-    # LLM relevance pre-filter: use batched parallel LLM calls to drop irrelevant papers
+    # ── Pass 1: LLM relevance pre-filter ─────────────────────────────────────
     prefilter_applied = False
     prefilter_error = None
     excluded_by_prefilter = []
@@ -2831,7 +3277,7 @@ def api_discover_rank():
             total=len(filtered),
             found=int(sum(source_counts.values())),
             source_counts=source_counts,
-            message=f"Pre-filtering {len(filtered)} candidates for relevance ({_PREFILTER_BATCH_SIZE} per batch)...",
+            message=f"Pass 1: Filtering {len(filtered)} candidates for relevance...",
             query=query_text,
         )
         cfg_pf = _load_azure_config() or {}
@@ -2844,33 +3290,46 @@ def api_discover_rank():
             prefilter_applied = True
             filtered = to_rank
             source_counts = _count_source_counts(filtered)
+        # Mark relevant papers as AI-vetted after Pass 1
+        for c in filtered:
+            c["verified_by_ai"] = True
         if prefilter_error:
             errors.append(prefilter_error)
 
     total_to_process = len(filtered)
 
-    _set_discovery_progress(
-        user_key,
-        stage="ranking",
-        active=total_to_process > 0,
-        processed=0,
-        total=total_to_process,
-        found=int(sum(source_counts.values())),
-        source_counts=source_counts,
-        message=(
-            f"Ranking 0 of {total_to_process} papers for {team_label}..."
-            if total_to_process > 0
-            else "No papers available to rank."
-        ),
-        query=query_text,
-    )
-
+    # ── Pass 2 & 3: Abstract ranking then full PDF for top 10 ────────────────
     ranked = []
     try:
         if filtered:
-            def _progress_callback(processed_count, total_count, stage_name):
+            def _pass2_callback(processed_count, total_count, stage_name):
                 safe_total = max(0, int(total_count or total_to_process or 0))
                 safe_processed = max(0, min(int(processed_count or 0), safe_total if safe_total > 0 else int(processed_count or 0)))
+                if stage_name == "completed":
+                    msg = f"Pass 2 complete. Starting deep analysis of top papers..."
+                else:
+                    msg = f"Pass 2: Ranking {safe_processed} of {safe_total} papers by abstract for {team_label}..."
+                _set_discovery_progress(
+                    user_key,
+                    stage="pass2-scoring",
+                    active=(stage_name != "completed"),
+                    processed=safe_processed,
+                    total=safe_total,
+                    found=int(sum(source_counts.values())),
+                    source_counts=source_counts,
+                    message=msg,
+                    query=query_text,
+                )
+
+            def _pass3_callback(processed_count, total_count, stage_name):
+                safe_total = max(0, int(total_count or 0))
+                safe_processed = max(0, min(int(processed_count or 0), safe_total if safe_total > 0 else int(processed_count or 0)))
+                if stage_name == "downloading":
+                    msg = f"Pass 3: Downloading top papers for deep analysis..."
+                elif stage_name == "completed":
+                    msg = f"Ranking complete for {team_label}."
+                else:
+                    msg = f"Pass 3: Deep scoring {safe_processed} of {safe_total} papers for {team_label}..."
                 _set_discovery_progress(
                     user_key,
                     stage=stage_name,
@@ -2879,21 +3338,59 @@ def api_discover_rank():
                     total=safe_total,
                     found=int(sum(source_counts.values())),
                     source_counts=source_counts,
-                    message=(
-                        f"Ranking complete for {team_label}."
-                        if stage_name == "completed"
-                        else f"Ranking {safe_processed} of {safe_total} papers for {team_label}..."
-                    ),
+                    message=msg,
                     query=query_text,
                 )
 
-            ranked = _rank_candidates_with_ai(
-                query_text,
-                filtered,
-                progress_callback=_progress_callback,
-                team_id=team_id,
-                ranking_run_id=ranking_run_id,
-            )
+            if len(filtered) > _INITIAL_RANK_THRESHOLD:
+                # Pass 2: Abstract ranking of all relevant papers
+                _set_discovery_progress(
+                    user_key,
+                    stage="pass2-scoring",
+                    active=True,
+                    processed=0,
+                    total=total_to_process,
+                    found=int(sum(source_counts.values())),
+                    source_counts=source_counts,
+                    message=f"Pass 2: Ranking 0 of {total_to_process} papers by abstract for {team_label}...",
+                    query=query_text,
+                )
+                pass2_results = _rank_candidates_abstract(
+                    query_text, filtered, progress_callback=_pass2_callback,
+                    team_id=team_id, ranking_run_id=ranking_run_id,
+                )
+                # Sort by score, take top 10 for Pass 3
+                pass2_sorted = sorted(
+                    pass2_results,
+                    key=lambda c: (c.get("total_score") or 0, c.get("citation_count") or 0, c.get("year") or 0),
+                    reverse=True,
+                )
+                top_10 = pass2_sorted[:10]
+                remainder = pass2_sorted[10:]
+                # Pass 3: Full PDF ranking of top 10
+                ranked = _rank_candidates_with_ai(
+                    query_text, top_10, progress_callback=_pass3_callback,
+                    team_id=team_id, ranking_run_id=ranking_run_id,
+                )
+                # Merge: Pass 3 results + Pass 2 remainder (keep their abstract scores)
+                ranked = ranked + remainder
+            else:
+                # ≤10 relevant papers: skip Pass 2, go directly to Pass 3 (full PDF)
+                _set_discovery_progress(
+                    user_key,
+                    stage="downloading",
+                    active=True,
+                    processed=0,
+                    total=total_to_process,
+                    found=int(sum(source_counts.values())),
+                    source_counts=source_counts,
+                    message=f"Pass 3: Downloading {total_to_process} papers for deep analysis...",
+                    query=query_text,
+                )
+                ranked = _rank_candidates_with_ai(
+                    query_text, filtered, progress_callback=_pass3_callback,
+                    team_id=team_id, ranking_run_id=ranking_run_id,
+                )
         else:
             _set_discovery_progress(
                 user_key,

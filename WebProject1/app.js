@@ -12,6 +12,7 @@ let _discoverySourceErrors = { arxiv: null, openalex: null, "core-pr": null };
 let _discoveryExpandedTerms = []; // LLM-generated synonym queries used in last search
 let _liveCitationCounts = {}; // { paper_id: int | null } — null means could not be retrieved
 let _clipboardPapers = []; // discovery papers added to clipboard; resets on page refresh
+let _libClipboardPapers = []; // library papers added to clipboard; resets on page refresh
 let _currentUserIsAdmin = false; // fetched from /api/me on load
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
@@ -48,12 +49,15 @@ let _discoveryProgressPollTimer = null;
 let _discoverySearchInFlight = false;
 let _discoveryRankInFlight = false;
 let _discoverySearchContext = { query: "", year_from: "2025", year_to: "2026" };
+let _searchMode = "ai"; // 'ai' or 'keyword'
+let _discoveryAbortController = null; // AbortController for cancelling search
 
 // ── Discovery state persistence (sessionStorage) ──────────────────────────
 const _DISCOVERY_STORAGE_KEY = "discovery_state";
 
 function _saveDiscoveryState() {
   try {
+    const suppInput = document.getElementById("discoverySupplementalInput");
     sessionStorage.setItem(_DISCOVERY_STORAGE_KEY, JSON.stringify({
       papers: discoveredWebPapers,
       sourceCounts: _discoverySourceCounts,
@@ -63,6 +67,8 @@ function _saveDiscoveryState() {
       searchContext: _discoverySearchContext,
       queryText: discoveryQueryEl ? discoveryQueryEl.textContent : "",
       statusText: discoveryStatusEl ? discoveryStatusEl.textContent : "",
+      searchMode: _searchMode,
+      supplemental: suppInput ? suppInput.value : "",
     }));
   } catch (_) { /* quota exceeded or private mode */ }
 }
@@ -88,6 +94,13 @@ function _restoreDiscoveryState() {
     const yearToEl = document.getElementById("yearTo");
     if (yearFromEl && _discoverySearchContext.year_from) yearFromEl.value = _discoverySearchContext.year_from;
     if (yearToEl && _discoverySearchContext.year_to) yearToEl.value = _discoverySearchContext.year_to;
+    // Restore search mode and supplemental input
+    if (s.searchMode) {
+      _searchMode = s.searchMode;
+      _applySearchModeUI();
+    }
+    const suppInput = document.getElementById("discoverySupplementalInput");
+    if (suppInput && s.supplemental) suppInput.value = s.supplemental;
     _renderExpandedTerms();
     renderDiscoveryFeed();
     _setRankButtonsEnabledByResults();
@@ -1139,8 +1152,9 @@ function renderExpandedCard(paper, libraryViewMode) {
   let tagsHtml = "";
   if (paper.isDiscovery) {
     const sourceLabel = discoverySourceLabel(paper.source);
+    const vettedTag = paper.verified_by_ai ? `<span class="tag tag-vetted">AI Vetted</span>` : "";
     tagsHtml = `
-      <span class="tag tag-vetted">AI Vetted</span>
+      ${vettedTag}
       <span class="tag tag-source">${escapeHtml(sourceLabel)}</span>`;
   } else {
     tagsHtml = paper.groups.map((g) => `<span class="tag ${groupClass(g)}">${groupLabel(g)}</span>`).join("");
@@ -1184,9 +1198,14 @@ function renderExpandedCard(paper, libraryViewMode) {
     const genMetaBtn = (hasBlankMeta && paper.pdf_path)
       ? `<button class="ghost-link generate-meta-btn" type="button" data-id="${paper.id}">Generate Metadata</button>`
       : "";
+    const inLibClipboard = _libClipboardPapers.some((p) => p.id === paper.id);
+    const libClipBtn = hideDeleteInSearchLibrary
+      ? `<button class="ghost-link lib-clipboard-toggle-btn" type="button" data-id="${paper.id}" title="${inLibClipboard ? "Remove from clipboard" : "Add to clipboard"}">${inLibClipboard ? "\u2605 In Clipboard" : "\u2606 Add to Clipboard"}</button>`
+      : "";
     editBtns = `
       <button class="ghost-link edit-paper-btn" type="button" data-id="${paper.id}">Edit</button>
       ${genMetaBtn}
+      ${libClipBtn}
       ${pickBtnHtml}
       ${deleteBtnHtml}`;
   }
@@ -1297,6 +1316,23 @@ function renderExpandedCard(paper, libraryViewMode) {
     _renderClipboardPanel();
     const panel = document.getElementById("clipboardPanel");
     if (panel && _clipboardPapers.length > 0 && !panel.classList.contains("is-open")) {
+      panel.classList.add("is-open");
+      panel.setAttribute("aria-hidden", "false");
+    }
+  });
+
+  const libClipToggleBtn = card.querySelector(".lib-clipboard-toggle-btn");
+  if (libClipToggleBtn) libClipToggleBtn.addEventListener("click", () => {
+    const idx = _libClipboardPapers.findIndex((p) => p.id === paper.id);
+    if (idx === -1) {
+      _libClipboardPapers.push(paper);
+    } else {
+      _libClipboardPapers.splice(idx, 1);
+    }
+    renderSearchLibrary();
+    _renderLibClipboardPanel();
+    const panel = document.getElementById("libClipboardPanel");
+    if (panel && _libClipboardPapers.length > 0 && !panel.classList.contains("is-open")) {
       panel.classList.add("is-open");
       panel.setAttribute("aria-hidden", "false");
     }
@@ -1508,12 +1544,85 @@ function switchPage(pageId) {
 
 // ── Page 1: Discovery ──────────────────────────────────────────────────────
 
+// ── Search Mode Toggle Helpers ─────────────────────────────────────────────
+
+function _applySearchModeUI() {
+  const toggle = document.getElementById("searchModeToggle");
+  const aiLabel = document.getElementById("modeAiLabel");
+  const kwLabel = document.getElementById("modeKeywordLabel");
+  const suppWrap = document.getElementById("supplementalWrap");
+  const previewEl = document.getElementById("queryPreview");
+  if (toggle) toggle.checked = (_searchMode === "keyword");
+  if (aiLabel) aiLabel.classList.toggle("search-mode-label--active", _searchMode === "ai");
+  if (kwLabel) kwLabel.classList.toggle("search-mode-label--active", _searchMode === "keyword");
+  if (suppWrap) suppWrap.style.display = (_searchMode === "keyword") ? "flex" : "none";
+  if (previewEl) previewEl.style.display = (_searchMode === "keyword") ? "block" : "none";
+  if (_searchMode === "keyword") _updateQueryPreview();
+}
+
+function _updateQueryPreview() {
+  const previewEl = document.getElementById("queryPreview");
+  if (!previewEl) return;
+  const primary = (document.getElementById("discoverySearchInput")?.value || "").trim();
+  const suppRaw = (document.getElementById("discoverySupplementalInput")?.value || "").trim();
+  if (!primary) {
+    previewEl.innerHTML = "<em>Enter a primary keyword to see query preview</em>";
+    return;
+  }
+  const suppTerms = suppRaw ? suppRaw.split(",").map(s => s.trim()).filter(Boolean) : [];
+  const queries = [primary, ...suppTerms.map(t => `${primary} ${t}`)];
+  previewEl.innerHTML = "<strong>Queries:</strong> " + queries.map(q => `<span class="query-tag">${q}</span>`).join("");
+}
+
+function _initSearchModeToggle() {
+  const toggle = document.getElementById("searchModeToggle");
+  if (!toggle) return;
+  toggle.addEventListener("change", () => {
+    _searchMode = toggle.checked ? "keyword" : "ai";
+    _applySearchModeUI();
+  });
+  // Live preview updates
+  const primaryInput = document.getElementById("discoverySearchInput");
+  const suppInput = document.getElementById("discoverySupplementalInput");
+  if (primaryInput) primaryInput.addEventListener("input", () => { if (_searchMode === "keyword") _updateQueryPreview(); });
+  if (suppInput) suppInput.addEventListener("input", _updateQueryPreview);
+
+  // Cancel/Done button
+  const cancelBtn = document.getElementById("cancelSearchBtn");
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", () => {
+      if (_discoverySearchInFlight && _discoveryAbortController) {
+        _discoveryAbortController.abort();
+      }
+    });
+  }
+}
+
+function _setCancelSearchBtn(state) {
+  const btn = document.getElementById("cancelSearchBtn");
+  if (!btn) return;
+  if (state === "cancel") {
+    btn.textContent = "Cancel";
+    btn.disabled = false;
+    btn.style.display = "inline-block";
+    btn.classList.remove("cancel-btn--done");
+  } else if (state === "done") {
+    btn.textContent = "Done";
+    btn.disabled = true;
+    btn.style.display = "inline-block";
+    btn.classList.add("cancel-btn--done");
+  } else {
+    btn.style.display = "none";
+  }
+}
+
 async function handleFindNewPapers() {
   if (!findNewPapersBtn) return;
   if (_discoveryRankInFlight) return;
   _discoverySearchInFlight = true;
   findNewPapersBtn.disabled = true;
   _setAllRankButtonsDisabled(true);
+  _setCancelSearchBtn("cancel");
   discoveryStatusEl.textContent = "Searching sources...";
   _clearDiscoveryStorage();
   discoveredWebPapers = [];
@@ -1525,6 +1634,8 @@ async function handleFindNewPapers() {
   renderDiscoveryFeed();
   _setDiscoveryProgressBar(0, 1, true, "Starting search...");
   _startDiscoveryProgressPolling();
+
+  _discoveryAbortController = new AbortController();
 
   try {
     const searchInput = document.getElementById("discoverySearchInput");
@@ -1538,8 +1649,14 @@ async function handleFindNewPapers() {
     if (query) params.set("q", query);
     params.set("year_from", yearFrom);
     params.set("year_to", yearTo);
+    params.set("mode", _searchMode);
+    if (_searchMode === "keyword") {
+      const suppInput = document.getElementById("discoverySupplementalInput");
+      const supplemental = suppInput ? suppInput.value.trim() : "";
+      if (supplemental) params.set("supplemental", supplemental);
+    }
 
-    const res = await fetch(`/api/discover/search?${params.toString()}`);
+    const res = await fetch(`/api/discover/search?${params.toString()}`, { signal: _discoveryAbortController.signal });
     if (!res.ok) throw new Error("Discovery request failed");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -1579,16 +1696,25 @@ async function handleFindNewPapers() {
     _setRankButtonsEnabledByResults();
     _saveDiscoveryState();
   } catch (error) {
-    discoveredWebPapers = [];
-    _discoveryEmptyReason = error.message || "Search failed.";
-    renderDiscoveryFeed();
-    discoveryStatusEl.textContent = `Search failed: ${error.message}`;
-    _stopDiscoveryProgressPolling();
-    _setDiscoveryProgressBar(0, 0, false, "Search failed.");
-    _setAllRankButtonsDisabled(true);
+    if (error.name === "AbortError") {
+      discoveryStatusEl.textContent = "Search cancelled.";
+      _stopDiscoveryProgressPolling();
+      _setDiscoveryProgressBar(0, 0, false, "Search cancelled.");
+      _setAllRankButtonsDisabled(true);
+    } else {
+      discoveredWebPapers = [];
+      _discoveryEmptyReason = error.message || "Search failed.";
+      renderDiscoveryFeed();
+      discoveryStatusEl.textContent = `Search failed: ${error.message}`;
+      _stopDiscoveryProgressPolling();
+      _setDiscoveryProgressBar(0, 0, false, "Search failed.");
+      _setAllRankButtonsDisabled(true);
+    }
   } finally {
     _discoverySearchInFlight = false;
+    _discoveryAbortController = null;
     findNewPapersBtn.disabled = false;
+    _setCancelSearchBtn("done");
     _setRankButtonsEnabledByResults();
   }
 }
@@ -1916,6 +2042,189 @@ function _renderClipboardPanel() {
   }
 }
 
+function _renderLibClipboardPanel() {
+  const panel       = document.getElementById("libClipboardPanel");
+  const countEl     = document.getElementById("libClipboardCount");
+  const listEl      = document.getElementById("libClipboardList");
+  const emptyMsg    = document.getElementById("libClipboardEmptyMsg");
+  const downloadBtn = document.getElementById("libClipboardDownloadBtn");
+  const reportBtn   = document.getElementById("libClipboardReportBtn");
+  if (!panel) return;
+
+  const n = _libClipboardPapers.length;
+  if (countEl)     countEl.textContent = n;
+  if (downloadBtn) downloadBtn.disabled = n === 0;
+  if (reportBtn)   reportBtn.disabled   = n === 0;
+  if (emptyMsg)    emptyMsg.style.display = n === 0 ? "" : "none";
+  if (listEl) {
+    listEl.innerHTML = _libClipboardPapers.map((p, i) => `
+      <li class="clipboard-item">
+        <span class="clipboard-item-title" title="${escapeHtml(p.title)}">${escapeHtml(p.title)}</span>
+        <button class="clipboard-remove-btn" type="button" data-idx="${i}" aria-label="Remove">&#x2715;</button>
+      </li>`).join("");
+    listEl.querySelectorAll(".clipboard-remove-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        _libClipboardPapers.splice(parseInt(btn.dataset.idx, 10), 1);
+        renderSearchLibrary();
+        _renderLibClipboardPanel();
+      });
+    });
+  }
+}
+
+function _initLibClipboard() {
+  _initLibClipboardDrag();
+  _renderLibClipboardPanel();
+
+  const panel    = document.getElementById("libClipboardPanel");
+  const closeBtn = document.getElementById("libClipboardCloseBtn");
+  if (closeBtn && panel) {
+    closeBtn.addEventListener("click", () => {
+      panel.classList.remove("is-open");
+      panel.setAttribute("aria-hidden", "true");
+    });
+  }
+
+  const downloadBtn = document.getElementById("libClipboardDownloadBtn");
+  if (downloadBtn) downloadBtn.addEventListener("click", _downloadLibClipboardPdfs);
+
+  const reportBtn = document.getElementById("libClipboardReportBtn");
+  if (reportBtn) reportBtn.addEventListener("click", _openLibReportModal);
+
+  const genBtn = document.getElementById("libGenerateReportBtn");
+  if (genBtn) genBtn.addEventListener("click", _generateLibReport);
+
+  const copyBtn = document.getElementById("libCopyReportBtn");
+  if (copyBtn) copyBtn.addEventListener("click", () => {
+    const output = document.getElementById("libReportOutput");
+    if (output?.textContent) {
+      navigator.clipboard.writeText(output.textContent)
+        .then(() => { copyBtn.textContent = "Copied!"; setTimeout(() => { copyBtn.textContent = "Copy Report"; }, 2000); })
+        .catch(() => alert("Copy failed \u2014 please select and copy the text manually."));
+    }
+  });
+
+  const libReportModal    = document.getElementById("libReportModal");
+  const libReportCloseBtn = document.getElementById("libReportModalCloseBtn");
+  if (libReportCloseBtn && libReportModal) {
+    libReportCloseBtn.addEventListener("click", () => {
+      libReportModal.classList.remove("is-open");
+      libReportModal.setAttribute("aria-hidden", "true");
+    });
+  }
+  if (libReportModal) {
+    libReportModal.addEventListener("click", (e) => {
+      if (e.target === libReportModal) {
+        libReportModal.classList.remove("is-open");
+        libReportModal.setAttribute("aria-hidden", "true");
+      }
+    });
+  }
+}
+
+function _initLibClipboardDrag() {
+  const panel  = document.getElementById("libClipboardPanel");
+  const handle = panel?.querySelector(".clipboard-drag-handle");
+  if (!panel || !handle) return;
+
+  let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (e.target.closest("button")) return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    startX = e.clientX; startY = e.clientY;
+    startLeft = rect.left; startTop = rect.top;
+    panel.style.right  = "auto";
+    panel.style.bottom = "auto";
+    panel.style.left   = startLeft + "px";
+    panel.style.top    = startTop  + "px";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    panel.style.left = Math.max(0, startLeft + (e.clientX - startX)) + "px";
+    panel.style.top  = Math.max(0, startTop  + (e.clientY - startY)) + "px";
+  });
+  document.addEventListener("mouseup", () => { dragging = false; });
+}
+
+async function _downloadLibClipboardPdfs() {
+  const btn = document.getElementById("libClipboardDownloadBtn");
+  const origText = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Downloading\u2026"; }
+  try {
+    const res = await fetch("/api/clipboard/download-zip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        papers: _libClipboardPapers.map((p) => ({ id: p.id, title: p.title, pdf_url: p.pdf_path || p.link })),
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "library_clipboard_papers.zip";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Download failed: " + e.message);
+  } finally {
+    if (btn) { btn.disabled = _libClipboardPapers.length === 0; btn.textContent = origText; }
+  }
+}
+
+function _openLibReportModal() {
+  const modal  = document.getElementById("libReportModal");
+  const output = document.getElementById("libReportOutput");
+  const copyBtn = document.getElementById("libCopyReportBtn");
+  if (!modal) return;
+  if (output)  output.textContent = "";
+  if (copyBtn) { copyBtn.disabled = true; copyBtn.textContent = "Copy Report"; }
+  modal.classList.add("is-open");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+async function _generateLibReport() {
+  const modal  = document.getElementById("libReportModal");
+  const output = document.getElementById("libReportOutput");
+  const copyBtn = document.getElementById("libCopyReportBtn");
+  const genBtn  = document.getElementById("libGenerateReportBtn");
+  const modeEl  = modal?.querySelector("input[name='libReportMode']:checked");
+  const mode    = modeEl?.value || "summary";
+
+  if (output)  output.innerHTML = '<span class="spinner"></span> Generating report\u2026';
+  if (genBtn)  genBtn.disabled  = true;
+  if (copyBtn) copyBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/clipboard/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode,
+        papers: _libClipboardPapers.map((p) => ({
+          title: p.title, authors: p.authors, year: p.year,
+          summary: p.summary, datacenter: p.datacenter, metrics: p.metrics,
+        })),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (output) output.textContent = data.report || "";
+    if (copyBtn) copyBtn.disabled = false;
+  } catch (e) {
+    if (output) output.textContent = "Error: " + e.message;
+  } finally {
+    if (genBtn) genBtn.disabled = false;
+  }
+}
+
 function _initClipboardDrag() {
   const panel  = document.getElementById("clipboardPanel");
   const handle = panel?.querySelector(".clipboard-drag-handle");
@@ -2128,8 +2437,12 @@ function init() {
       if (discoveryStatusEl) {
         discoveryStatusEl.textContent = "Topic selected. Click Search Sources to fetch papers.";
       }
+      if (_searchMode === "keyword") _updateQueryPreview();
     });
   });
+
+  // Search mode toggle
+  _initSearchModeToggle();
 
   // Year range sliders
   bindYearSliders();
@@ -2137,8 +2450,9 @@ function init() {
   // Manual bbox modal
   bindBBoxModal();
 
-  // Clipboard panel
+  // Clipboard panels
   _initClipboard();
+  _initLibClipboard();
 
   // Library search input (debounced)
   if (librarySearchInput) {
